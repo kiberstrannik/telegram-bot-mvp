@@ -1,8 +1,8 @@
 // src/llm.ts
 import "dotenv/config";
 // @ts-ignore — библиотека без TS-типов
-import googleTranslateApi from "@vitalets/google-translate-api";
-const translate = googleTranslateApi;
+// @ts-ignore
+import translate from "@vitalets/google-translate-api";
 import GPT3Tokenizer from "gpt3-tokenizer";
 import { getCharacterProfile } from "./db";
 

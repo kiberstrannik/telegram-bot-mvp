@@ -11,6 +11,7 @@ export type CharacterProfile = {
   character_age?: string | null;
   character_hair?: string | null;
   character_traits?: string | null;
+  character_preference?: string;
 };
 
 /* ===========================

@@ -1,7 +1,8 @@
 // src/mini.ts
 import "dotenv/config";
 import { Bot } from "grammy";
-import { generateReply } from "./llm";
+import { generateSpicyReply } from "./llm";
+
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
