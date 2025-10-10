@@ -6,13 +6,22 @@ import Database from "better-sqlite3";
 export type Role = "user" | "assistant" | "system";
 
 export type CharacterProfile = {
-  character_name?: string | null;
-  character_gender?: string | null;
-  character_age?: string | null;
-  character_hair?: string | null;
-  character_traits?: string | null;
+  character_name: string;
+  character_gender: string;
+  character_age: string;
+  character_hair: string;
+  character_traits: string;
   character_preference?: string;
 };
+
+export async function getCharacterProfile(userId: number): Promise<CharacterProfile | null> {
+  const row = await db.get<CharacterProfile>(
+    "SELECT character_name, character_gender, character_age, character_hair, character_traits, character_preference FROM users WHERE id = ?",
+    userId
+  );
+  return row || null;
+}
+
 
 /* ===========================
    DB INIT
