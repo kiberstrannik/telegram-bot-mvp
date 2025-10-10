@@ -105,13 +105,21 @@ export function updateCharacterField(userId: number, key: keyof CharacterProfile
   stmt.run(value, userId);
 }
 
-export function getCharacterProfile(userId: number): CharacterProfile {
+export function getCharacterProfile(userId: number) {
   const stmt = db.prepare(`
-    SELECT character_name, character_gender, character_age, character_hair, character_traits
-    FROM users WHERE id = ?
+    SELECT 
+      character_name, 
+      character_gender, 
+      character_age, 
+      character_hair, 
+      character_traits,
+      character_preference
+    FROM users 
+    WHERE id = ?
   `);
   return stmt.get(userId) || {};
 }
+
 
 /* ===========================
    MESSAGES

@@ -1,15 +1,12 @@
 import "dotenv/config";
-import { Bot, InlineKeyboard, InputFile } from "grammy";
+import { Bot, InlineKeyboard } from "grammy";
 import {
   upsertUser,
   addMessage,
   getHistory,
   resetUser,
-  exportMessages,
   isPremium,
-  setPremium,
   getMessageCount,
-  setAgeVerified,
   getAgeVerified,
   updateCharacterField,
   getCharacterProfile,
@@ -52,6 +49,7 @@ const creationSteps = [
   { key: "character_age", question: "🎂 Сколько лет твоему персонажу?" },
   { key: "character_hair", question: "💇 Опиши цвет и длину волос:" },
   { key: "character_traits", question: "✨ Опиши несколько черт характера:" },
+  { key: "character_preference", question: "💞 Кому симпатизирует твой персонаж? (мужчинам, женщинам, обоим, никому)" },
 ] as const;
 
 const userState = new Map<number, number>();
@@ -64,10 +62,11 @@ const WELCOME_TEXT = `
 • Что происходит вокруг?  
 • С кем ты?  
 Я продолжу историю от лица мира и других персонажей.
+(Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды, пока я пишу 😉)
 `;
 
 /* ===========================
-   COMMANDS
+   START
    =========================== */
 bot.command("start", async (ctx) => {
   if (!ctx.from) return;
@@ -78,8 +77,8 @@ bot.command("start", async (ctx) => {
   if (ageStatus === -1) return ctx.reply("🚫 Доступ только для пользователей 18+.");
   if (ageStatus === 0) return ctx.reply("⚠️ Тебе уже есть 18 лет?", { reply_markup: ageKeyboard() });
 
-  const char = getCharacterProfile(userId);
-  if (!char.character_name) {
+  const char = await getCharacterProfile(userId) ?? {};
+  if (!char || !char.character_name) {
     userState.set(userId, 0);
     return ctx.reply("🎭 Давай создадим твоего персонажа!\n" + creationSteps[0].question);
   }
@@ -95,10 +94,11 @@ bot.on("message:text", async (ctx) => {
   const chatId = ctx.from.id;
   const text = ctx.message.text.trim();
 
+  // === персонаж создаётся ===
   if (userState.has(chatId)) {
     const step = userState.get(chatId)!;
     const current = creationSteps[step];
-    updateCharacterField(chatId, current.key, text);
+    await updateCharacterField(chatId, current.key, text);
 
     if (step + 1 < creationSteps.length) {
       userState.set(chatId, step + 1);
@@ -106,20 +106,21 @@ bot.on("message:text", async (ctx) => {
     }
 
     userState.delete(chatId);
-    const profile = getCharacterProfile(chatId);
+    const profile = await getCharacterProfile(chatId);
     await ctx.reply(
       `✨ Персонаж создан!\n\n` +
         `Имя: *${profile.character_name}*\n` +
         `Пол: *${profile.character_gender}*\n` +
         `Возраст: *${profile.character_age}*\n` +
         `Волосы: *${profile.character_hair}*\n` +
-        `Характер: *${profile.character_traits}*`,
+        `Характер: *${profile.character_traits}*\n` +
+        `Кому симпатизирует: *${profile.character_preference || "не указано"}*`,
       { parse_mode: "Markdown" }
     );
     return ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
   }
 
-  // === обычный диалог после создания ===
+  // === обычный диалог ===
   const count = await getMessageCount(chatId);
   if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
     return ctx.reply(
@@ -131,13 +132,15 @@ bot.on("message:text", async (ctx) => {
   await addMessage(chatId, "user", text, text);
 
   let hist = await getHistory(chatId);
-  if (hist.length % SUMMARY_EVERY === 0) {
-    const summary = await summarizeHistory(hist);
-    await addMessage(chatId, "system", `[SUMMARY]: ${summary}`);
-    hist = await getHistory(chatId);
+
+  // 🧠 Сжимаем историю, если она слишком длинная
+  if (hist.length > 12) {
+    const oldPart = hist.slice(0, -8);
+    const summary = await summarizeHistory(oldPart);
+    hist = [{ role: "system", content: `[SUMMARY]: ${summary}` }, ...hist.slice(-8)];
   }
 
-  const replyOriginal = await generateSpicyReply(text, hist);
+  const replyOriginal = await generateSpicyReply(text, hist, ctx.from.id);
   const replyTranslated = /[a-zA-Z]{4,}/.test(replyOriginal)
     ? await translateToRussian(replyOriginal)
     : replyOriginal;
@@ -150,12 +153,45 @@ bot.on("message:text", async (ctx) => {
    CALLBACKS
    =========================== */
 bot.callbackQuery("continue", async (ctx) => {
-  const hist = await getHistory(ctx.from!.id);
-  const replyOriginal = await generateSpicyReply("", hist);
+  const chatId = ctx.from!.id;
+  let hist = await getHistory(chatId);
+
+  // 🧹 убираем дубликаты подряд
+  hist = hist.filter((m, i, arr) => i === 0 || m.content !== arr[i - 1].content);
+
+  // 🧠 если история длинная — сжимаем
+  if (hist.length > 12) {
+    const oldPart = hist.slice(0, -8);
+    const summary = await summarizeHistory(oldPart);
+    hist = [{ role: "system", content: `[SUMMARY]: ${summary}` }, ...hist.slice(-8)];
+  }
+
+  await ctx.api.sendChatAction(chatId, "typing");
+
+  const continuationCue = [
+    "Сцена продолжается...",
+    "История не останавливается.",
+    "Тишина сменяется лёгким движением — время не стоит на месте.",
+    "Никита ощущает, как мир вокруг неумолимо движется дальше...",
+  ];
+  const randomCue = continuationCue[Math.floor(Math.random() * continuationCue.length)];
+
+  hist.push({
+    role: "user",
+    content: `[Продолжить сцену] ${randomCue}`,
+  });
+
+  const replyOriginal = await generateSpicyReply("[Продолжить сцену]", hist, chatId);
   const replyTranslated = /[a-zA-Z]{4,}/.test(replyOriginal)
     ? await translateToRussian(replyOriginal)
     : replyOriginal;
-  await addMessage(ctx.from!.id, "assistant", replyOriginal, replyTranslated);
+
+  // 🔁 защита от повторов
+  const last = hist[hist.length - 1]?.content;
+  if (last !== replyTranslated) {
+    await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
+  }
+
   await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
 });
 
@@ -175,7 +211,7 @@ bot.callbackQuery("forget_last", async (ctx) => {
    RUN
    =========================== */
 (async () => {
-  console.log("🚀 Bot running with character creation + 18+ check + paywall");
+  console.log("🚀 Bot running with anti-loop, compression & orientation support");
   await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
   await bot.start();
 })();
