@@ -1,4 +1,3 @@
-// src/index.ts
 import "dotenv/config";
 import express from "express";
 import { Bot, InlineKeyboard } from "grammy";
@@ -12,42 +11,42 @@ import {
   getAgeVerified,
   updateCharacterField,
   getCharacterProfile,
-  type CharacterProfile,
 } from "./db";
-
 import type { Msg } from "./llm";
+import type { CharacterProfile } from "./db";
 import { generateSpicyReply, translateToRussian, summarizeHistory } from "./llm";
 
+const token = process.env.BOT_TOKEN!;
+if (!token) {
+  throw new Error("❌ BOT_TOKEN отсутствует в .env");
+}
+
+const bot = new Bot(token);
+const PAYWALL_LIMIT = 100;
+
 /* ===========================
-   EXPRESS SERVER (для Render)
+   EXPRESS SERVER — чтобы Render видел порт
    =========================== */
 const app = express();
-app.get("/", (_, res) => res.send("🤖 Bot is running and healthy!"));
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+app.get("/", (_, res) => {
+  res.send("🤖 Your World Simulator Bot is running and healthy!");
+});
+
+app.listen(PORT, async () => {
   console.log(`🌐 Express server listening on port ${PORT}`);
 
-  // запуск бота после старта сервера
-  (async () => {
-    console.log("🚀 Starting Telegram bot...");
-    await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-    await bot.start();
-    console.log("✅ Bot is running with anti-loop, compression & orientation support");
-  })();
+  // запускаем Telegram-бота после старта сервера
+  console.log("🚀 Starting Telegram bot...");
+  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+  await bot.start();
+  console.log("✅ Bot is running with anti-loop, compression & orientation support");
 });
 
 /* ===========================
-   TELEGRAM BOT
+   HELPERS
    =========================== */
-const token = process.env.BOT_TOKEN!;
-if (!token) throw new Error("❌ BOT_TOKEN отсутствует в .env");
-
-const bot = new Bot(token);
-
-const PAYWALL_LIMIT = 100;
-const SUMMARY_EVERY = 20;
-
 function actionKeyboard() {
   return new InlineKeyboard()
     .text("▶️ Продолжить", "continue")
@@ -64,6 +63,9 @@ function ageKeyboard() {
     .text("❌ Мне нет 18 лет", "age_no");
 }
 
+/* ===========================
+   CHARACTER CREATION
+   =========================== */
 const creationSteps = [
   { key: "character_name", question: "🧙 Как зовут твоего персонажа?" },
   { key: "character_gender", question: "⚧ Укажи пол персонажа (м/ж/другое):" },
@@ -83,7 +85,7 @@ const WELCOME_TEXT = `
 • Что происходит вокруг?  
 • С кем ты?  
 Я продолжу историю от лица мира и других персонажей.
-(Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды, пока я пишу 😉)
+(Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды 😉)
 `;
 
 /* ===========================
@@ -108,13 +110,14 @@ bot.command("start", async (ctx) => {
 });
 
 /* ===========================
-   MESSAGE HANDLER
+   CHARACTER CREATION FLOW
    =========================== */
 bot.on("message:text", async (ctx) => {
   if (!ctx.from) return;
   const chatId = ctx.from.id;
   const text = ctx.message.text.trim();
 
+  // === персонаж создаётся ===
   if (userState.has(chatId)) {
     const step = userState.get(chatId)!;
     const current = creationSteps[step];
@@ -142,6 +145,7 @@ bot.on("message:text", async (ctx) => {
     return ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
   }
 
+  // === обычный диалог ===
   const count = await getMessageCount(chatId);
   if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
     return ctx.reply(
@@ -154,6 +158,7 @@ bot.on("message:text", async (ctx) => {
 
   let hist = await getHistory(chatId);
 
+  // 🧠 Сжимаем историю, если слишком длинная
   if (hist.length > 12) {
     const oldPart = hist.slice(0, -8);
     const summary = await summarizeHistory(oldPart);
@@ -175,8 +180,8 @@ bot.on("message:text", async (ctx) => {
 bot.callbackQuery("continue", async (ctx) => {
   const chatId = ctx.from!.id;
   let hist = await getHistory(chatId);
-  hist = hist.filter((m, i, arr) => i === 0 || m.content !== arr[i - 1].content);
 
+  hist = hist.filter((m, i, arr) => i === 0 || m.content !== arr[i - 1].content);
   if (hist.length > 12) {
     const oldPart = hist.slice(0, -8);
     const summary = await summarizeHistory(oldPart);
@@ -191,10 +196,7 @@ bot.callbackQuery("continue", async (ctx) => {
     ? await translateToRussian(replyOriginal)
     : replyOriginal;
 
-  const last = hist[hist.length - 1]?.content;
-  if (last !== replyTranslated)
-    await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
-
+  await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
   await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
 });
 
@@ -209,12 +211,3 @@ bot.callbackQuery("forget_last", async (ctx) => {
   await resetUser(ctx.from!.id);
   await ctx.reply("🧠 Последнее сообщение забыто.", { reply_markup: actionKeyboard() });
 });
-
-/* ===========================
-   RUN
-   =========================== */
-(async () => {
-  console.log("🚀 Bot running with anti-loop, compression & orientation support");
-  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-  await bot.start();
-})();
