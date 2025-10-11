@@ -1,4 +1,3 @@
-// src/db.ts
 import Database from "better-sqlite3";
 
 /* ===========================
@@ -20,7 +19,7 @@ export type CharacterProfile = {
    =========================== */
 const db = new Database("data.db");
 
-// Создаём таблицы, если их нет
+// создаём таблицы, если их нет
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
@@ -93,6 +92,20 @@ export function updateCharacterField(
   field: keyof CharacterProfile,
   value: string
 ) {
+  // защита от SQL-инъекций: поле проверяем вручную
+  if (
+    ![
+      "character_name",
+      "character_gender",
+      "character_age",
+      "character_hair",
+      "character_traits",
+      "character_preference",
+    ].includes(field)
+  ) {
+    throw new Error(`Недопустимое поле: ${field}`);
+  }
+
   const stmt = db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`);
   stmt.run(value, userId);
 }
@@ -106,10 +119,21 @@ export function getCharacterProfile(userId: number): CharacterProfile | null {
       character_hair,
       character_traits,
       character_preference
-    FROM users WHERE id = ?
+    FROM users
+    WHERE id = ?
   `);
   const row = stmt.get(userId) as CharacterProfile | undefined;
-  return row || null;
+
+  // если пользователь существует, но поля ещё пустые — возвращаем объект с пустыми строками
+  if (!row) return null;
+  return {
+    character_name: row.character_name || "",
+    character_gender: row.character_gender || "",
+    character_age: row.character_age || "",
+    character_hair: row.character_hair || "",
+    character_traits: row.character_traits || "",
+    character_preference: row.character_preference || "",
+  };
 }
 
 /* ===========================
@@ -139,6 +163,17 @@ export function getHistory(userId: number): { role: Role; content: string }[] {
 }
 
 export function resetUser(userId: number) {
-  const stmt = db.prepare(`DELETE FROM messages WHERE user_id = ?`);
-  stmt.run(userId);
+  const stmt1 = db.prepare(`DELETE FROM messages WHERE user_id = ?`);
+  const stmt2 = db.prepare(`
+    UPDATE users SET
+      character_name = NULL,
+      character_gender = NULL,
+      character_age = NULL,
+      character_hair = NULL,
+      character_traits = NULL,
+      character_preference = NULL
+    WHERE id = ?;
+  `);
+  stmt1.run(userId);
+  stmt2.run(userId);
 }
