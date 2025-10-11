@@ -1,3 +1,4 @@
+// src/db.ts
 import Database from "better-sqlite3";
 
 /* ===========================
@@ -14,165 +15,130 @@ export type CharacterProfile = {
   character_preference?: string;
 };
 
-export async function getCharacterProfile(userId: number): Promise<CharacterProfile | null> {
-  const row = await db.get<CharacterProfile>(
-    "SELECT character_name, character_gender, character_age, character_hair, character_traits, character_preference FROM users WHERE id = ?",
-    userId
-  );
-  return row || null;
-}
-
-
 /* ===========================
-   DB INIT
+   INIT DATABASE
    =========================== */
-const DB_PATH = process.env.DATABASE_URL || "./bot.db";
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+const db = new Database("data.db");
 
+// Создаём таблицы, если их нет
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   username TEXT,
   first_name TEXT,
   last_name TEXT,
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')*1000),
-  premium INTEGER NOT NULL DEFAULT 0,
-  age_verified INTEGER NOT NULL DEFAULT 0,
-  character_name TEXT DEFAULT NULL,
-  character_gender TEXT DEFAULT NULL,
-  character_age TEXT DEFAULT NULL,
-  character_hair TEXT DEFAULT NULL,
-  character_traits TEXT DEFAULT NULL
+  premium INTEGER DEFAULT 0,
+  age_verified INTEGER DEFAULT 0,
+  character_name TEXT,
+  character_gender TEXT,
+  character_age TEXT,
+  character_hair TEXT,
+  character_traits TEXT,
+  character_preference TEXT
 );
 
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  chat_id INTEGER NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
-  content TEXT NOT NULL,
+  user_id INTEGER,
+  role TEXT,
+  content TEXT,
   translated TEXT,
-  ts INTEGER NOT NULL,
-  FOREIGN KEY(chat_id) REFERENCES users(id) ON DELETE CASCADE
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, ts);
 `);
 
 /* ===========================
-   USERS
+   USER MANAGEMENT
    =========================== */
-export async function upsertUser(
+export function upsertUser(
   id: number,
-  username?: string | null,
-  first_name?: string | null,
-  last_name?: string | null
+  username?: string,
+  first_name?: string,
+  last_name?: string
 ) {
-  const ins = db.prepare(`
-    INSERT INTO users (id, username, first_name, last_name, created_at)
-    VALUES (@id, @username, @first_name, @last_name, @created_at)
+  const stmt = db.prepare(`
+    INSERT INTO users (id, username, first_name, last_name)
+    VALUES (?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      username=excluded.username,
-      first_name=excluded.first_name,
-      last_name=excluded.last_name
+      username = excluded.username,
+      first_name = excluded.first_name,
+      last_name = excluded.last_name;
   `);
-
-  ins.run({
-    id,
-    username: username ?? null,
-    first_name: first_name ?? null,
-    last_name: last_name ?? null,
-    created_at: Date.now(),
-  });
+  stmt.run(id, username, first_name, last_name);
 }
 
-/* ===========================
-   PREMIUM & AGE
-   =========================== */
-export async function setPremium(chatId: number, isPremium: boolean) {
-  db.prepare(`UPDATE users SET premium = ? WHERE id = ?`).run(isPremium ? 1 : 0, chatId);
+export function isPremium(userId: number): boolean {
+  const stmt = db.prepare(`SELECT premium FROM users WHERE id = ?`);
+  const row = stmt.get(userId) as { premium?: number } | undefined;
+  return !!row?.premium;
 }
 
-export async function isPremium(chatId: number): Promise<boolean> {
-  const row = db.prepare(`SELECT premium FROM users WHERE id = ?`).get(chatId) as { premium?: number };
-  return row?.premium === 1;
+export function getMessageCount(userId: number): number {
+  const stmt = db.prepare(`SELECT COUNT(*) as count FROM messages WHERE user_id = ?`);
+  const row = stmt.get(userId) as { count: number };
+  return row.count;
 }
 
-export async function setAgeVerified(chatId: number, value: number) {
-  db.prepare(`UPDATE users SET age_verified = ? WHERE id = ?`).run(value, chatId);
-}
-
-export async function getAgeVerified(chatId: number): Promise<number> {
-  const row = db.prepare(`SELECT age_verified FROM users WHERE id = ?`).get(chatId) as { age_verified?: number };
+export function getAgeVerified(userId: number): number {
+  const stmt = db.prepare(`SELECT age_verified FROM users WHERE id = ?`);
+  const row = stmt.get(userId) as { age_verified?: number } | undefined;
   return row?.age_verified ?? 0;
 }
 
 /* ===========================
-   CHARACTER
+   CHARACTER PROFILE
    =========================== */
-export function updateCharacterField(userId: number, key: keyof CharacterProfile, value: string) {
-  const stmt = db.prepare(`UPDATE users SET ${key} = ? WHERE id = ?`);
+export function updateCharacterField(
+  userId: number,
+  field: keyof CharacterProfile,
+  value: string
+) {
+  const stmt = db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`);
   stmt.run(value, userId);
 }
 
-export function getCharacterProfile(userId: number) {
+export function getCharacterProfile(userId: number): CharacterProfile | null {
   const stmt = db.prepare(`
-    SELECT 
-      character_name, 
-      character_gender, 
-      character_age, 
-      character_hair, 
+    SELECT
+      character_name,
+      character_gender,
+      character_age,
+      character_hair,
       character_traits,
       character_preference
-    FROM users 
-    WHERE id = ?
+    FROM users WHERE id = ?
   `);
-  return stmt.get(userId) || {};
+  const row = stmt.get(userId) as CharacterProfile | undefined;
+  return row || null;
 }
-
 
 /* ===========================
    MESSAGES
    =========================== */
-export async function addMessage(chatId: number, role: Role, content: string, translated?: string) {
-  db.prepare(
-    `INSERT INTO messages (chat_id, role, content, translated, ts)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(chatId, role, content, translated ?? null, Date.now());
+export function addMessage(
+  userId: number,
+  role: Role,
+  content: string,
+  translated?: string
+) {
+  const stmt = db.prepare(`
+    INSERT INTO messages (user_id, role, content, translated)
+    VALUES (?, ?, ?, ?)
+  `);
+  stmt.run(userId, role, content, translated || content);
 }
 
-export async function getHistory(chatId: number, limit = 60): Promise<{ role: Role; content: string; translated?: string | null }[]> {
-  const rows = db.prepare(`
-    SELECT role, content, translated FROM messages
-    WHERE chat_id = ? ORDER BY ts ASC LIMIT ?
-  `).all(chatId, limit) as { role: Role; content: string; translated?: string | null }[];
-
-  return rows;
+export function getHistory(userId: number): { role: Role; content: string }[] {
+  const stmt = db.prepare(`
+    SELECT role, translated AS content
+    FROM messages
+    WHERE user_id = ?
+    ORDER BY id ASC
+  `);
+  return stmt.all(userId) as { role: Role; content: string }[];
 }
 
-export async function resetUser(chatId: number) {
-  db.prepare(`DELETE FROM messages WHERE chat_id = ?`).run(chatId);
+export function resetUser(userId: number) {
+  const stmt = db.prepare(`DELETE FROM messages WHERE user_id = ?`);
+  stmt.run(userId);
 }
-
-export async function exportMessages(chatId: number) {
-  const rows = db.prepare(`
-    SELECT role, content, translated, ts FROM messages
-    WHERE chat_id = ? ORDER BY ts ASC
-  `).all(chatId);
-  return { chat_id: chatId, count: rows.length, messages: rows };
-}
-
-export async function getMessageCount(chatId: number): Promise<number> {
-  const row = db.prepare(`SELECT COUNT(*) as count FROM messages WHERE chat_id = ?`).get(chatId) as { count: number };
-  return row.count;
-}
-
-export async function rollbackLastStep(chatId: number, steps = 2) {
-  db.prepare(`
-    DELETE FROM messages WHERE id IN (
-      SELECT id FROM messages WHERE chat_id = ? ORDER BY ts DESC LIMIT ?
-    )
-  `).run(chatId, steps);
-}
-
-export default db;
