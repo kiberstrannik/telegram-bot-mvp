@@ -1,3 +1,4 @@
+// src/index.ts
 import "dotenv/config";
 import { Bot, InlineKeyboard } from "grammy";
 import {
@@ -13,9 +14,14 @@ import {
 } from "./db";
 
 import type { Msg } from "./llm";
+import type { CharacterProfile } from "./db";
 import { generateSpicyReply, translateToRussian, summarizeHistory } from "./llm";
 
 const token = process.env.BOT_TOKEN!;
+if (!token) {
+  throw new Error("❌ BOT_TOKEN отсутствует в .env");
+}
+
 const bot = new Bot(token);
 
 const PAYWALL_LIMIT = 100;
@@ -77,7 +83,7 @@ bot.command("start", async (ctx) => {
   if (ageStatus === -1) return ctx.reply("🚫 Доступ только для пользователей 18+.");
   if (ageStatus === 0) return ctx.reply("⚠️ Тебе уже есть 18 лет?", { reply_markup: ageKeyboard() });
 
-  const char = await getCharacterProfile(userId) ?? {};
+  const char = (await getCharacterProfile(userId)) as CharacterProfile | null;
   if (!char || !char.character_name) {
     userState.set(userId, 0);
     return ctx.reply("🎭 Давай создадим твоего персонажа!\n" + creationSteps[0].question);
@@ -106,15 +112,17 @@ bot.on("message:text", async (ctx) => {
     }
 
     userState.delete(chatId);
-    const profile = await getCharacterProfile(chatId);
+    const profile = (await getCharacterProfile(chatId)) as CharacterProfile | null;
+    if (!profile) return ctx.reply("⚠️ Ошибка: не удалось получить профиль персонажа.");
+
     await ctx.reply(
       `✨ Персонаж создан!\n\n` +
-        `Имя: *${profile.character_name}*\n` +
-        `Пол: *${profile.character_gender}*\n` +
-        `Возраст: *${profile.character_age}*\n` +
-        `Волосы: *${profile.character_hair}*\n` +
-        `Характер: *${profile.character_traits}*\n` +
-        `Кому симпатизирует: *${profile.character_preference || "не указано"}*`,
+        `Имя: *${profile?.character_name || "не указано"}*\n` +
+        `Пол: *${profile?.character_gender || "не указано"}*\n` +
+        `Возраст: *${profile?.character_age || "не указано"}*\n` +
+        `Волосы: *${profile?.character_hair || "не указано"}*\n` +
+        `Характер: *${profile?.character_traits || "не указано"}*\n` +
+        `Кому симпатизирует: *${profile?.character_preference || "не указано"}*`,
       { parse_mode: "Markdown" }
     );
     return ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
@@ -168,17 +176,9 @@ bot.callbackQuery("continue", async (ctx) => {
 
   await ctx.api.sendChatAction(chatId, "typing");
 
-  const continuationCue = [
-    "Сцена продолжается...",
-    "История не останавливается.",
-    "Тишина сменяется лёгким движением — время не стоит на месте.",
-    "Никита ощущает, как мир вокруг неумолимо движется дальше...",
-  ];
-  const randomCue = continuationCue[Math.floor(Math.random() * continuationCue.length)];
-
   hist.push({
     role: "user",
-    content: `[Продолжить сцену] ${randomCue}`,
+    content: "[Продолжить сцену]",
   });
 
   const replyOriginal = await generateSpicyReply("[Продолжить сцену]", hist, chatId);
