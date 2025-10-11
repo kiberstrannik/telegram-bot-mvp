@@ -1,4 +1,3 @@
-// src/index.ts
 import "dotenv/config";
 import { Bot, InlineKeyboard } from "grammy";
 import {
@@ -13,10 +12,12 @@ import {
   getCharacterProfile,
 } from "./db";
 
-import type { Msg } from "./llm";
 import type { CharacterProfile } from "./db";
 import { generateSpicyReply, translateToRussian, summarizeHistory } from "./llm";
 
+/* ===========================
+   INIT BOT
+   =========================== */
 const token = process.env.BOT_TOKEN!;
 if (!token) {
   throw new Error("❌ BOT_TOKEN отсутствует в .env");
@@ -25,7 +26,6 @@ if (!token) {
 const bot = new Bot(token);
 
 const PAYWALL_LIMIT = 100;
-const SUMMARY_EVERY = 20;
 
 /* ===========================
    HELPERS
@@ -68,11 +68,11 @@ const WELCOME_TEXT = `
 • Что происходит вокруг?  
 • С кем ты?  
 Я продолжу историю от лица мира и других персонажей.
-(Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды, пока я пишу 😉)
+(Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды 😉)
 `;
 
 /* ===========================
-   START
+   START COMMAND
    =========================== */
 bot.command("start", async (ctx) => {
   if (!ctx.from) return;
@@ -93,6 +93,31 @@ bot.command("start", async (ctx) => {
 });
 
 /* ===========================
+   AGE VERIFICATION
+   =========================== */
+import Database from "better-sqlite3";
+const db = new Database("data.db");
+
+bot.callbackQuery("age_yes", async (ctx) => {
+  const userId = ctx.from!.id;
+  const stmt = db.prepare(`UPDATE users SET age_verified = 1 WHERE id = ?`);
+  stmt.run(userId);
+
+  await ctx.answerCallbackQuery({ text: "✅ Доступ разрешён!" });
+  userState.set(userId, 0);
+  await ctx.reply("🎭 Отлично! Теперь создадим твоего персонажа.\n🧙 Как его зовут?");
+});
+
+bot.callbackQuery("age_no", async (ctx) => {
+  const userId = ctx.from!.id;
+  const stmt = db.prepare(`UPDATE users SET age_verified = -1 WHERE id = ?`);
+  stmt.run(userId);
+
+  await ctx.answerCallbackQuery({ text: "🚫 Доступ запрещён." });
+  await ctx.reply("Извини, но доступ к этому боту только для пользователей 18+ ❌");
+});
+
+/* ===========================
    CHARACTER CREATION FLOW
    =========================== */
 bot.on("message:text", async (ctx) => {
@@ -100,7 +125,6 @@ bot.on("message:text", async (ctx) => {
   const chatId = ctx.from.id;
   const text = ctx.message.text.trim();
 
-  // === персонаж создаётся ===
   if (userState.has(chatId)) {
     const step = userState.get(chatId)!;
     const current = creationSteps[step];
@@ -128,7 +152,6 @@ bot.on("message:text", async (ctx) => {
     return ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
   }
 
-  // === обычный диалог ===
   const count = await getMessageCount(chatId);
   if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
     return ctx.reply(
@@ -140,8 +163,6 @@ bot.on("message:text", async (ctx) => {
   await addMessage(chatId, "user", text, text);
 
   let hist = await getHistory(chatId);
-
-  // 🧠 Сжимаем историю, если она слишком длинная
   if (hist.length > 12) {
     const oldPart = hist.slice(0, -8);
     const summary = await summarizeHistory(oldPart);
@@ -163,7 +184,6 @@ bot.on("message:text", async (ctx) => {
 bot.callbackQuery("continue", async (ctx) => {
   const chatId = ctx.from!.id;
   let hist = await getHistory(chatId);
-
   hist = hist.filter((m, i, arr) => i === 0 || m.content !== arr[i - 1].content);
 
   if (hist.length > 12) {
@@ -202,7 +222,7 @@ bot.callbackQuery("forget_last", async (ctx) => {
 });
 
 /* ===========================
-   RUN (Background Worker)
+   RUN BOT
    =========================== */
 (async () => {
   console.log("🚀 Bot running on Render (Background Worker mode)");
