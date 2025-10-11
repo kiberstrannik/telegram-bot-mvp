@@ -1,5 +1,5 @@
+// src/index.ts
 import "dotenv/config";
-import express from "express";
 import { Bot, InlineKeyboard } from "grammy";
 import {
   upsertUser,
@@ -12,6 +12,7 @@ import {
   updateCharacterField,
   getCharacterProfile,
 } from "./db";
+
 import type { Msg } from "./llm";
 import type { CharacterProfile } from "./db";
 import { generateSpicyReply, translateToRussian, summarizeHistory } from "./llm";
@@ -22,27 +23,9 @@ if (!token) {
 }
 
 const bot = new Bot(token);
+
 const PAYWALL_LIMIT = 100;
-
-/* ===========================
-   EXPRESS SERVER — чтобы Render видел порт
-   =========================== */
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get("/", (_, res) => {
-  res.send("🤖 Your World Simulator Bot is running and healthy!");
-});
-
-app.listen(PORT, async () => {
-  console.log(`🌐 Express server listening on port ${PORT}`);
-
-  // запускаем Telegram-бота после старта сервера
-  console.log("🚀 Starting Telegram bot...");
-  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-  await bot.start();
-  console.log("✅ Bot is running with anti-loop, compression & orientation support");
-});
+const SUMMARY_EVERY = 20;
 
 /* ===========================
    HELPERS
@@ -85,7 +68,7 @@ const WELCOME_TEXT = `
 • Что происходит вокруг?  
 • С кем ты?  
 Я продолжу историю от лица мира и других персонажей.
-(Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды 😉)
+(Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды, пока я пишу 😉)
 `;
 
 /* ===========================
@@ -158,7 +141,7 @@ bot.on("message:text", async (ctx) => {
 
   let hist = await getHistory(chatId);
 
-  // 🧠 Сжимаем историю, если слишком длинная
+  // 🧠 Сжимаем историю, если она слишком длинная
   if (hist.length > 12) {
     const oldPart = hist.slice(0, -8);
     const summary = await summarizeHistory(oldPart);
@@ -182,6 +165,7 @@ bot.callbackQuery("continue", async (ctx) => {
   let hist = await getHistory(chatId);
 
   hist = hist.filter((m, i, arr) => i === 0 || m.content !== arr[i - 1].content);
+
   if (hist.length > 12) {
     const oldPart = hist.slice(0, -8);
     const summary = await summarizeHistory(oldPart);
@@ -189,6 +173,7 @@ bot.callbackQuery("continue", async (ctx) => {
   }
 
   await ctx.api.sendChatAction(chatId, "typing");
+
   hist.push({ role: "user", content: "[Продолжить сцену]" });
 
   const replyOriginal = await generateSpicyReply("[Продолжить сцену]", hist, chatId);
@@ -196,7 +181,11 @@ bot.callbackQuery("continue", async (ctx) => {
     ? await translateToRussian(replyOriginal)
     : replyOriginal;
 
-  await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
+  const last = hist[hist.length - 1]?.content;
+  if (last !== replyTranslated) {
+    await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
+  }
+
   await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
 });
 
@@ -211,3 +200,12 @@ bot.callbackQuery("forget_last", async (ctx) => {
   await resetUser(ctx.from!.id);
   await ctx.reply("🧠 Последнее сообщение забыто.", { reply_markup: actionKeyboard() });
 });
+
+/* ===========================
+   RUN (Background Worker)
+   =========================== */
+(async () => {
+  console.log("🚀 Bot running on Render (Background Worker mode)");
+  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+  await bot.start();
+})();
