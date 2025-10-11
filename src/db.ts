@@ -92,20 +92,26 @@ export function updateCharacterField(
   field: keyof CharacterProfile,
   value: string
 ) {
-  // защита от SQL-инъекций: поле проверяем вручную
-  if (
-    ![
-      "character_name",
-      "character_gender",
-      "character_age",
-      "character_hair",
-      "character_traits",
-      "character_preference",
-    ].includes(field)
-  ) {
+  // ✅ Защита от SQL-инъекций — разрешаем только эти поля
+  const allowed = [
+    "character_name",
+    "character_gender",
+    "character_age",
+    "character_hair",
+    "character_traits",
+    "character_preference",
+  ];
+  if (!allowed.includes(field)) {
     throw new Error(`Недопустимое поле: ${field}`);
   }
 
+  // ✅ Проверяем, есть ли пользователь в базе
+  const userExists = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+  if (!userExists) {
+    db.prepare("INSERT INTO users (id) VALUES (?)").run(userId);
+  }
+
+  // ✅ Обновляем конкретное поле
   const stmt = db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`);
   stmt.run(value, userId);
 }
@@ -122,10 +128,13 @@ export function getCharacterProfile(userId: number): CharacterProfile | null {
     FROM users
     WHERE id = ?
   `);
+
   const row = stmt.get(userId) as CharacterProfile | undefined;
 
-  // если пользователь существует, но поля ещё пустые — возвращаем объект с пустыми строками
+  // ✅ Если строка отсутствует — возвращаем null
   if (!row) return null;
+
+  // ✅ Возвращаем объект даже если часть полей пустая
   return {
     character_name: row.character_name || "",
     character_gender: row.character_gender || "",
