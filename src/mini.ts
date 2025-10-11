@@ -44,7 +44,9 @@ bot.on("message:text", async (ctx) => {
   hist.push({ role: "user", content: userText });
 
   try {
-    const reply = await generateSpicyReply(chatId, userText, hist);
+    const reply = await generateSpicyReply(userText, hist, chatId);
+
+
     hist.push({ role: "assistant", content: reply });
 
     // ограничим глубину истории, чтобы не раздувать ОЗУ
