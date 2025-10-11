@@ -7,22 +7,25 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p .",
     "start": "tsx src/index.ts",
-    "migrate": "tsx src/migrate.ts"
+    "migrate": "tsx src/migrate.ts",
+    "postinstall": "npm rebuild better-sqlite3"
   },
   "dependencies": {
     "@vitalets/google-translate-api": "^9.2.1",
     "better-sqlite3": "^11.10.0",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
     "gpt3-tokenizer": "^1.1.5",
-    "grammy": "^1.38.2",
+    "grammy": "^1.38.3",
     "openai": "^4.104.0"
   },
   "devDependencies": {
     "@grammyjs/types": "^3.22.2",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^20.19.20",
+    "@types/express": "^5.0.3",
+    "@types/node": "^20.19.21",
     "ts-node": "^10.9.2",
-    "tsx": "^4.7.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
 }
