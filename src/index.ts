@@ -1,5 +1,11 @@
+// src/index.ts
 import "dotenv/config";
+import express from "express";
+import path from "path";
 import { Bot, InlineKeyboard } from "grammy";
+import paymentRouter from "./paymentCrypto";
+import Database from "better-sqlite3";
+
 import {
   upsertUser,
   addMessage,
@@ -11,21 +17,128 @@ import {
   updateCharacterField,
   getCharacterProfile,
 } from "./db";
-
 import type { CharacterProfile } from "./db";
 import { generateSpicyReply, translateToRussian, summarizeHistory } from "./llm";
 
 /* ===========================
-   INIT BOT
+   EXPRESS SERVER
    =========================== */
-const token = process.env.BOT_TOKEN!;
-if (!token) {
-  throw new Error("❌ BOT_TOKEN отсутствует в .env");
+const app = express();
+
+// ✅ Раздаём HTML-страницы (если public внутри src)
+
+app.use(express.static(path.join(process.cwd(), "src", "public")));
+
+
+// ✅ Маршрут платежей
+app.use("/", paymentRouter);
+
+app.get("/", (req, res) =>
+  res.send("🌐 YourWorldSimulator онлайн. Webhook активен.")
+);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () =>
+  console.log(`🚀 Express сервер запущен на порту ${PORT}`)
+);
+
+/* ===========================
+   TELEGRAM BOT INIT
+   =========================== */
+function similarityRatio(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[^а-яёa-z0-9]+/gi, " ").trim();
+  const wordsA = new Set(normalize(a).split(" "));
+  const wordsB = new Set(normalize(b).split(" "));
+  const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
+  return intersection / Math.max(wordsA.size, wordsB.size);
 }
 
-const bot = new Bot(token);
+function getTimeShift(): string {
+  const variants = [
+    "Прошло несколько минут...",
+    "Вечер сменился тишиной, и воздух стал плотнее.",
+    "Мир словно застыл, но вдруг лёгкий ветерок вернул движение.",
+    "Где-то вдалеке раздался странный звук, нарушивший тишину.",
+    "Прошло какое-то время, и атмосфера вокруг изменилась.",
+    "Сцена сменилась — будто время сделало шаг вперёд.",
+  ];
+  return variants[Math.floor(Math.random() * variants.length)];
+}
 
-const PAYWALL_LIMIT = 100;
+const token = process.env.BOT_TOKEN!;
+if (!token) throw new Error("❌ BOT_TOKEN отсутствует в .env");
+
+const bot = new Bot(token);
+const ADMIN_GROUP_ID = -1003218588633;
+const PAYWALL_LIMIT = 2;
+const db = new Database("data.db");
+
+/* ===========================
+   ADMIN COMMANDS
+   =========================== */
+
+// 🔐 Проверка Premium вручную
+bot.command("resetpremium", async (ctx) => {
+  const userId = ctx.from?.id;
+  if (!userId) return ctx.reply("⚠️ Ошибка: не удалось определить ID пользователя.");
+
+  const ADMIN_ID = 448157054;
+  if (userId !== ADMIN_ID) return ctx.reply("⛔ У тебя нет прав использовать эту команду.");
+
+  const user = db.prepare("SELECT premium FROM users WHERE id = ?").get(userId);
+  const currentStatus = user?.premium === 1;
+  const newStatus = currentStatus ? 0 : 1;
+
+  db.prepare("UPDATE users SET premium = ? WHERE id = ?").run(newStatus, userId);
+
+  ctx.reply(newStatus ? "💎 Premium активирован вручную." : "🚫 Premium отключён вручную.");
+  console.log(`🔁 Premium для ${userId} изменён на: ${newStatus}`);
+});
+
+// 👤 Информация о пользователе
+bot.command("whoami", async (ctx) => {
+  const user = ctx.from;
+  if (!user) return ctx.reply("⚠️ Ошибка: не удалось получить данные пользователя.");
+  await ctx.reply(
+    `👤 Твой Telegram ID: *${user.id}*\nИмя: *${user.first_name || "-"}*\nЮзернейм: *@${user.username || "нет"}*`,
+    { parse_mode: "Markdown" }
+  );
+});
+
+// 🔧 Управление Premium для других пользователей
+bot.command("setpremium", async (ctx) => {
+  const adminId = ctx.from?.id;
+  const ADMIN_ID = 448157054;
+  if (adminId !== ADMIN_ID) return ctx.reply("⛔ У тебя нет прав использовать эту команду.");
+
+  const args = ctx.message?.text?.split(" ").filter(Boolean);
+  if (!args || args.length < 3)
+    return ctx.reply("⚙️ Использование: /setpremium <user_id> <on|off>");
+
+  const targetId = Number(args[1]);
+  const action = args[2].toLowerCase();
+  if (isNaN(targetId)) return ctx.reply("❌ Неверный ID пользователя.");
+
+  const newStatus = action === "on" ? 1 : 0;
+  const userExists = db.prepare("SELECT id FROM users WHERE id = ?").get(targetId);
+  if (!userExists) return ctx.reply("⚠️ Пользователь с таким ID не найден в базе.");
+
+  db.prepare("UPDATE users SET premium = ? WHERE id = ?").run(newStatus, targetId);
+  ctx.reply(newStatus ? `💎 Premium активирован для ${targetId}.` : `🚫 Premium отключён для ${targetId}.`);
+  console.log(`🔧 Premium для ${targetId} изменён на ${newStatus}`);
+});
+
+// 🛡 Политика конфиденциальности
+bot.command("privacy", async (ctx) => {
+  await ctx.reply("🛡 Политика конфиденциальности: https://yourworldsimulator.onrender.com/privacy.html");
+});
+
+// 📜 Условия использования
+bot.command("terms", async (ctx) => {
+  await ctx.reply("📜 Условия использования: https://yourworldsimulator.onrender.com/terms.html");
+});
 
 /* ===========================
    HELPERS
@@ -53,8 +166,7 @@ const creationSteps = [
   { key: "character_name", question: "🧙 Как зовут твоего персонажа?" },
   { key: "character_gender", question: "⚧ Укажи пол персонажа (м/ж/другое):" },
   { key: "character_age", question: "🎂 Сколько лет твоему персонажу?" },
-  { key: "character_hair", question: "💇 Опиши цвет и длину волос:" },
-  { key: "character_traits", question: "✨ Опиши несколько черт характера:" },
+  { key: "character_race", question: "🧬 К какой расе принадлежит твой персонаж?" },
   { key: "character_preference", question: "💞 Кому симпатизирует твой персонаж? (мужчинам, женщинам, обоим, никому)" },
 ] as const;
 
@@ -69,19 +181,7 @@ const WELCOME_TEXT = `
 • С кем ты?  
 Я продолжу историю от лица мира и других персонажей (можешь дополнять и сам развивать сюжет).
 
-*Примеры команд:*  
-• "Я просыпаюсь в таинственном лесу, окружённом высокими деревьями..."  
-• "В таверне я встречаю загадочного незнакомца с тёмными глазами..."  
-• "Вдруг небо затягивают тёмные тучи, и начинается гроза..."
-
-*Советы по игре:*  
-• Чем подробнее опишешь ситуацию, тем интереснее будет ответ.  
-• Добавляй эмоции, ощущения и детали окружения.  
-• Не бойся экспериментировать и вводить неожиданные повороты сюжета.
-
-*Важно:*  
-• Бот предназначен только для пользователей 18+.  
-
+*Важно:* Бот предназначен только для пользователей 18+.  
 (Когда тапаешь по кнопке “Продолжить” — подожди 2–4 секунды 😉)
 `;
 
@@ -91,11 +191,23 @@ const WELCOME_TEXT = `
 bot.command("start", async (ctx) => {
   if (!ctx.from) return;
   const userId = ctx.from.id;
+
+  const existingUser = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+  if (!existingUser) {
+    console.log("🆕 Новый пользователь:", ctx.from);
+    await bot.api.sendMessage(
+      ADMIN_GROUP_ID,
+      `🆕 *Новый пользователь!*\nИмя: *${ctx.from.first_name || "-"}*\nUsername: @${ctx.from.username || "нет"}\nID: \`${userId}\``,
+      { parse_mode: "Markdown" }
+    );
+  }
+
   await upsertUser(userId, ctx.from.username, ctx.from.first_name, ctx.from.last_name);
 
   const ageStatus = await getAgeVerified(userId);
   if (ageStatus === -1) return ctx.reply("🚫 Доступ только для пользователей 18+.");
-  if (ageStatus === 0) return ctx.reply("⚠️ Тебе уже есть 18 лет?", { reply_markup: ageKeyboard() });
+  if (ageStatus === 0)
+    return ctx.reply("⚠️ Тебе уже есть 18 лет?", { reply_markup: ageKeyboard() });
 
   const char = (await getCharacterProfile(userId)) as CharacterProfile | null;
   if (!char || !char.character_name) {
@@ -103,20 +215,18 @@ bot.command("start", async (ctx) => {
     return ctx.reply("🎭 Давай создадим твоего персонажа!\n" + creationSteps[0].question);
   }
 
-  return ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
+  await ctx.reply(WELCOME_TEXT);
+  setTimeout(() => {
+    ctx.reply("Теперь можешь выбрать действие 👇", { reply_markup: actionKeyboard() });
+  }, 2000);
 });
 
 /* ===========================
    AGE VERIFICATION
    =========================== */
-import Database from "better-sqlite3";
-const db = new Database("data.db");
-
 bot.callbackQuery("age_yes", async (ctx) => {
   const userId = ctx.from!.id;
-  const stmt = db.prepare(`UPDATE users SET age_verified = 1 WHERE id = ?`);
-  stmt.run(userId);
-
+  db.prepare(`UPDATE users SET age_verified = 1 WHERE id = ?`).run(userId);
   await ctx.answerCallbackQuery({ text: "✅ Доступ разрешён!" });
   userState.set(userId, 0);
   await ctx.reply("🎭 Отлично! Теперь создадим твоего персонажа.\n🧙 Как его зовут?");
@@ -124,21 +234,26 @@ bot.callbackQuery("age_yes", async (ctx) => {
 
 bot.callbackQuery("age_no", async (ctx) => {
   const userId = ctx.from!.id;
-  const stmt = db.prepare(`UPDATE users SET age_verified = -1 WHERE id = ?`);
-  stmt.run(userId);
-
+  db.prepare(`UPDATE users SET age_verified = -1 WHERE id = ?`).run(userId);
   await ctx.answerCallbackQuery({ text: "🚫 Доступ запрещён." });
   await ctx.reply("Извини, но доступ к этому боту только для пользователей 18+ ❌");
 });
 
 /* ===========================
-   CHARACTER CREATION FLOW
+   GAME LOGIC
    =========================== */
+bot.on("message:text", async (ctx, next) => {
+  if (ctx.message.text.startsWith("/")) return;
+  await next();
+});
+
+// 💬 Игровая логика
 bot.on("message:text", async (ctx) => {
   if (!ctx.from) return;
   const chatId = ctx.from.id;
   const text = ctx.message.text.trim();
 
+  // Создание персонажа
   if (userState.has(chatId)) {
     const step = userState.get(chatId)!;
     const current = creationSteps[step];
@@ -154,24 +269,26 @@ bot.on("message:text", async (ctx) => {
     if (!profile) return ctx.reply("⚠️ Ошибка: не удалось получить профиль персонажа.");
 
     await ctx.reply(
-      `✨ Персонаж создан!\n\n` +
-        `Имя: *${profile?.character_name || "не указано"}*\n` +
-        `Пол: *${profile?.character_gender || "не указано"}*\n` +
-        `Возраст: *${profile?.character_age || "не указано"}*\n` +
-        `Волосы: *${profile?.character_hair || "не указано"}*\n` +
-        `Характер: *${profile?.character_traits || "не указано"}*\n` +
-        `Кому симпатизирует: *${profile?.character_preference || "не указано"}*`,
+      `✨ Персонаж создан!\n\nИмя: *${profile.character_name || "не указано"}*\nПол: *${profile.character_gender || "не указано"}*\nВозраст: *${profile.character_age || "не указано"}*\nРаса: *${profile.character_race || "не указано"}*\nКому симпатизирует: *${profile.character_preference || "не указано"}*`,
       { parse_mode: "Markdown" }
     );
-    return ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
+
+    return ctx.reply(WELCOME_TEXT);
   }
 
   const count = await getMessageCount(chatId);
-  if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
+  if (count === 2 && !(await isPremium(chatId))) {
+    const payKeyboard = new InlineKeyboard().text("💳 Оплатить Premium", "buy_premium");
     return ctx.reply(
-      "⚠️ Лимит бесплатных сообщений исчерпан.\nЧтобы продолжить — оплатите доступ.",
-      { reply_markup: new InlineKeyboard().text("💳 Оплатить", "buy_premium") }
+      "✨ Хочешь продолжить приключение без ограничений?\n💎 Оформи Premium и получи доступ ко всем возможностям мира *YourWorldSimulator*!",
+      { reply_markup: payKeyboard, parse_mode: "Markdown" }
     );
+  }
+
+  if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
+    return ctx.reply("⚠️ Лимит бесплатных сообщений исчерпан.\nЧтобы продолжить — оплатите доступ.", {
+      reply_markup: new InlineKeyboard().text("💳 Оплатить Premium", "buy_premium"),
+    });
 
   await ctx.api.sendChatAction(ctx.chat.id, "typing");
   await addMessage(chatId, "user", text, text);
@@ -189,69 +306,34 @@ bot.on("message:text", async (ctx) => {
     : replyOriginal;
 
   await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
-  const currentHistory = getHistory(chatId);
-if ((await currentHistory).length > 20) {
-  try {
-    console.log("🌀 Сжимаем историю, чтобы избежать повторов и переполнения...");
-    const summary = await summarizeHistory(await currentHistory);
-    resetUser(chatId);
-    addMessage(chatId, "system", `[РЕЗЮМЕ СЮЖЕТА]: ${summary}`);
-    console.log("✅ История успешно сжата и обновлена.");
-  } catch (err) {
-    console.warn("⚠️ Ошибка при сжатии истории:", err);
-  }
-}
   await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
 });
 
 /* ===========================
-   CALLBACKS
-   =========================== */
-bot.callbackQuery("continue", async (ctx) => {
-  const chatId = ctx.from!.id;
-  let hist = await getHistory(chatId);
-  hist = hist.filter((m, i, arr) => i === 0 || m.content !== arr[i - 1].content);
-
-  if (hist.length > 12) {
-    const oldPart = hist.slice(0, -8);
-    const summary = await summarizeHistory(oldPart);
-    hist = [{ role: "system", content: `[SUMMARY]: ${summary}` }, ...hist.slice(-8)];
-  }
-
-  await ctx.api.sendChatAction(chatId, "typing");
-
-  hist.push({ role: "user", content: "[Продолжить сцену]" });
-
-  const replyOriginal = await generateSpicyReply("[Продолжить сцену]", hist, chatId);
-  const replyTranslated = /[a-zA-Z]{4,}/.test(replyOriginal)
-    ? await translateToRussian(replyOriginal)
-    : replyOriginal;
-
-  const last = hist[hist.length - 1]?.content;
-  if (last !== replyTranslated) {
-    await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
-  }
-
-  await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
-});
-
-bot.callbackQuery("new_world", async (ctx) => {
-  if (!ctx.from) return;
-  await resetUser(ctx.from.id);
-  userState.set(ctx.from.id, 0);
-  await ctx.reply("🆕 Мир очищен!\n🎭 Давай создадим нового персонажа!\n" + creationSteps[0].question);
-});
-
-bot.callbackQuery("forget_last", async (ctx) => {
-  await resetUser(ctx.from!.id);
-  await ctx.reply("🧠 Последнее сообщение забыто.", { reply_markup: actionKeyboard() });
-});
-
-/* ===========================
-   RUN BOT
+   RENDER START
    =========================== */
 (async () => {
   console.log("🚀 Bot running on Render (Background Worker mode)");
-  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-  await bot.start();
+
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "Начать заново" },
+      { command: "privacy", description: "Политика конфиденциальности" },
+      { command: "terms", description: "Условия использования" },
+      { command: "resetpremium", description: "Переключить Premium вручную" },
+      { command: "whoami", description: "Показать мой Telegram ID" },
+    ]);
+
+    if (process.env.NODE_ENV === "production") {
+      await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+      await bot.start();
+      console.log("✅ Бот запущен на Render");
+    } else {
+      console.log("💻 Локальный режим — убедись, что бот на Render приостановлен.");
+      await bot.start();
+      console.log("✅ Бот запущен локально");
+    }
+  } catch (err) {
+    console.error("❌ Ошибка запуска бота:", err);
+  }
 })();

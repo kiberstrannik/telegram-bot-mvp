@@ -9,10 +9,10 @@ export type CharacterProfile = {
   character_name: string;
   character_gender: string;
   character_age: string;
-  character_hair: string;
-  character_traits: string;
+  character_race: string;
   character_preference?: string;
 };
+
 
 /* ===========================
    INIT DATABASE
@@ -31,8 +31,7 @@ CREATE TABLE IF NOT EXISTS users (
   character_name TEXT,
   character_gender TEXT,
   character_age TEXT,
-  character_hair TEXT,
-  character_traits TEXT,
+  character_race TEXT,
   character_preference TEXT
 );
 
@@ -94,12 +93,11 @@ export function updateCharacterField(
 ) {
   // ✅ Защита от SQL-инъекций — разрешаем только эти поля
   const allowed = [
-    "character_name",
-    "character_gender",
-    "character_age",
-    "character_hair",
-    "character_traits",
-    "character_preference",
+  "character_name",
+  "character_gender",
+  "character_age",
+  "character_race",
+  "character_preference",
   ];
   if (!allowed.includes(field)) {
     throw new Error(`Недопустимое поле: ${field}`);
@@ -122,8 +120,7 @@ export function getCharacterProfile(userId: number): CharacterProfile | null {
       character_name,
       character_gender,
       character_age,
-      character_hair,
-      character_traits,
+      character_race,
       character_preference
     FROM users
     WHERE id = ?
@@ -139,8 +136,7 @@ export function getCharacterProfile(userId: number): CharacterProfile | null {
     character_name: row.character_name || "",
     character_gender: row.character_gender || "",
     character_age: row.character_age || "",
-    character_hair: row.character_hair || "",
-    character_traits: row.character_traits || "",
+    character_race: row.character_race || "",
     character_preference: row.character_preference || "",
   };
 }
@@ -178,8 +174,7 @@ export function resetUser(userId: number) {
       character_name = NULL,
       character_gender = NULL,
       character_age = NULL,
-      character_hair = NULL,
-      character_traits = NULL,
+      character_race = NULL,
       character_preference = NULL
     WHERE id = ?;
   `);
