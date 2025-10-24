@@ -27,7 +27,7 @@ const app = express();
 
 // ✅ Раздаём HTML-страницы (если public внутри src)
 
-app.use(express.static(path.join(process.cwd(), "src", "public")));
+app.use(express.static(path.join(process.cwd(), "src/public")));
 
 
 // ✅ Маршрут платежей
