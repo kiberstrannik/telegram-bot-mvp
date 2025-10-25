@@ -1,10 +1,10 @@
 // src/index.ts
 import "dotenv/config";
-import express from "express";
 import path from "path";
 import { Bot, InlineKeyboard } from "grammy";
 import paymentRouter from "./paymentCrypto";
 import Database from "better-sqlite3";
+import express, { Request, Response } from "express";
 
 import {
   upsertUser,
@@ -33,9 +33,10 @@ app.use(express.static(path.join(process.cwd(), "src/public")));
 // ✅ Маршрут платежей
 app.use("/", paymentRouter);
 
-app.get("/", (req, res) =>
-  res.send("🌐 YourWorldSimulator онлайн. Webhook активен.")
-);
+app.get("/", (req: Request, res: Response) => {
+  res.send("🌐 YourWorldSimulator онлайн. Webhook активен.");
+});
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>

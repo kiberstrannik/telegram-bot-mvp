@@ -3,7 +3,7 @@ import "dotenv/config";
 import express from "express";
 import axios from "axios";
 import Database from "better-sqlite3";
-
+import { Request, Response } from "express";
 const router = express.Router();
 router.use(express.json());
 
@@ -104,11 +104,11 @@ function markUserAsPremium(userId: number) {
 /* ===========================
    4️⃣ (опционально) Страницы успеха / ошибки
    =========================== */
-router.get("/payment/success", (req, res) => {
+router.get("/payment/success", (req: Request, res: Response) => {
   res.send("✅ Оплата прошла успешно! Можешь вернуться в Telegram и продолжить приключение.");
 });
 
-router.get("/payment/fail", (req, res) => {
+router.get("/payment/fail", (req: Request, res: Response) => {
   res.send("❌ Оплата не прошла. Попробуй ещё раз или выбери другой способ.");
 });
 
