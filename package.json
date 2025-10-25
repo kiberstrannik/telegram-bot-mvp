@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p .",
+    "build": "npm install --include=dev @types/express @types/node && tsc -p .",
     "start": "tsx src/index.ts",
     "migrate": "tsx src/migrate.ts",
     "postinstall": "npm rebuild better-sqlite3"
