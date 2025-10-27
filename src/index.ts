@@ -338,3 +338,48 @@ bot.on("message:text", async (ctx) => {
     console.error("❌ Ошибка запуска бота:", err);
   }
 })();
+/* ===========================
+   PREMIUM PAYMENT HANDLER
+   =========================== */
+bot.callbackQuery("buy_premium", async (ctx) => {
+  try {
+    await ctx.answerCallbackQuery({ text: "🔄 Переход к оплате..." });
+
+    const url = "https://yourworldsimulator.onrender.com/payment/start"; // ссылка на оплату
+    await ctx.reply(
+      `💎 Чтобы оформить Premium, перейди по ссылке:\n${url}\n\nПосле успешной оплаты вернись в Telegram.`
+    );
+  } catch (err) {
+    console.error("Ошибка при обработке покупки:", err);
+    await ctx.reply("⚠️ Ошибка при переходе к оплате. Попробуй позже.");
+  }
+});
+
+/* ===========================
+   RENDER START
+   =========================== */
+(async () => {
+  console.log("🚀 Bot running on Render (Background Worker mode)");
+
+  try {
+    await bot.api.setMyCommands([
+      { command: "start", description: "Начать заново" },
+      { command: "privacy", description: "Политика конфиденциальности" },
+      { command: "terms", description: "Условия использования" },
+      { command: "resetpremium", description: "Переключить Premium вручную" },
+      { command: "whoami", description: "Показать мой Telegram ID" },
+    ]);
+
+    if (process.env.NODE_ENV === "production") {
+      await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+      await bot.start();
+      console.log("✅ Бот запущен на Render");
+    } else {
+      console.log("💻 Локальный режим — убедись, что бот на Render приостановлен.");
+      await bot.start();
+      console.log("✅ Бот запущен локально");
+    }
+  } catch (err) {
+    console.error("❌ Ошибка запуска бота:", err);
+  }
+})();

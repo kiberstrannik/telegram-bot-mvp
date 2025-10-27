@@ -10,7 +10,7 @@ import { getCharacterProfile } from "./db";
 /* ===========================
    CONSTANTS
    =========================== */
-const MAX_PARAGRAPHS = 2;
+const MAX_PARAGRAPHS = 3;
 const MAX_TOKENS_CONTEXT = 4096;
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string };
