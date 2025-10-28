@@ -26,17 +26,14 @@ import { generateSpicyReply, translateToRussian, summarizeHistory } from "./llm"
 const app = express();
 
 // ✅ Раздаём HTML-страницы (если public внутри src)
-
 app.use(express.static(path.join(process.cwd(), "src/public")));
 
-
-// ✅ Маршрут платежей
+// ✅ Маршрут платежей (теперь заглушка)
 app.use("/", paymentRouter);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("🌐 YourWorldSimulator онлайн. Webhook активен.");
 });
-
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () =>
@@ -46,28 +43,6 @@ app.listen(PORT, () =>
 /* ===========================
    TELEGRAM BOT INIT
    =========================== */
-function similarityRatio(a: string, b: string): number {
-  if (!a || !b) return 0;
-  const normalize = (s: string) =>
-    s.toLowerCase().replace(/[^а-яёa-z0-9]+/gi, " ").trim();
-  const wordsA = new Set(normalize(a).split(" "));
-  const wordsB = new Set(normalize(b).split(" "));
-  const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
-  return intersection / Math.max(wordsA.size, wordsB.size);
-}
-
-function getTimeShift(): string {
-  const variants = [
-    "Прошло несколько минут...",
-    "Вечер сменился тишиной, и воздух стал плотнее.",
-    "Мир словно застыл, но вдруг лёгкий ветерок вернул движение.",
-    "Где-то вдалеке раздался странный звук, нарушивший тишину.",
-    "Прошло какое-то время, и атмосфера вокруг изменилась.",
-    "Сцена сменилась — будто время сделало шаг вперёд.",
-  ];
-  return variants[Math.floor(Math.random() * variants.length)];
-}
-
 const token = process.env.BOT_TOKEN!;
 if (!token) throw new Error("❌ BOT_TOKEN отсутствует в .env");
 
@@ -79,8 +54,6 @@ const db = new Database("data.db");
 /* ===========================
    ADMIN COMMANDS
    =========================== */
-
-// 🔐 Проверка Premium вручную
 bot.command("resetpremium", async (ctx) => {
   const userId = ctx.from?.id;
   if (!userId) return ctx.reply("⚠️ Ошибка: не удалось определить ID пользователя.");
@@ -98,7 +71,6 @@ bot.command("resetpremium", async (ctx) => {
   console.log(`🔁 Premium для ${userId} изменён на: ${newStatus}`);
 });
 
-// 👤 Информация о пользователе
 bot.command("whoami", async (ctx) => {
   const user = ctx.from;
   if (!user) return ctx.reply("⚠️ Ошибка: не удалось получить данные пользователя.");
@@ -108,7 +80,6 @@ bot.command("whoami", async (ctx) => {
   );
 });
 
-// 🔧 Управление Premium для других пользователей
 bot.command("setpremium", async (ctx) => {
   const adminId = ctx.from?.id;
   const ADMIN_ID = 448157054;
@@ -131,12 +102,10 @@ bot.command("setpremium", async (ctx) => {
   console.log(`🔧 Premium для ${targetId} изменён на ${newStatus}`);
 });
 
-// 🛡 Политика конфиденциальности
 bot.command("privacy", async (ctx) => {
   await ctx.reply("🛡 Политика конфиденциальности: https://yourworldsimulator.onrender.com/privacy.html");
 });
 
-// 📜 Условия использования
 bot.command("terms", async (ctx) => {
   await ctx.reply("📜 Условия использования: https://yourworldsimulator.onrender.com/terms.html");
 });
@@ -223,24 +192,6 @@ bot.command("start", async (ctx) => {
 });
 
 /* ===========================
-   AGE VERIFICATION
-   =========================== */
-bot.callbackQuery("age_yes", async (ctx) => {
-  const userId = ctx.from!.id;
-  db.prepare(`UPDATE users SET age_verified = 1 WHERE id = ?`).run(userId);
-  await ctx.answerCallbackQuery({ text: "✅ Доступ разрешён!" });
-  userState.set(userId, 0);
-  await ctx.reply("🎭 Отлично! Теперь создадим твоего персонажа.\n🧙 Как его зовут?");
-});
-
-bot.callbackQuery("age_no", async (ctx) => {
-  const userId = ctx.from!.id;
-  db.prepare(`UPDATE users SET age_verified = -1 WHERE id = ?`).run(userId);
-  await ctx.answerCallbackQuery({ text: "🚫 Доступ запрещён." });
-  await ctx.reply("Извини, но доступ к этому боту только для пользователей 18+ ❌");
-});
-
-/* ===========================
    GAME LOGIC
    =========================== */
 bot.on("message:text", async (ctx, next) => {
@@ -248,7 +199,7 @@ bot.on("message:text", async (ctx, next) => {
   await next();
 });
 
-// 💬 Игровая логика
+// 💬 Основная игровая логика
 bot.on("message:text", async (ctx) => {
   if (!ctx.from) return;
   const chatId = ctx.from.id;
@@ -278,18 +229,29 @@ bot.on("message:text", async (ctx) => {
   }
 
   const count = await getMessageCount(chatId);
+
   if (count === 2 && !(await isPremium(chatId))) {
-    const payKeyboard = new InlineKeyboard().text("💳 Оплатить Premium", "buy_premium");
+    const payKeyboard = new InlineKeyboard().url(
+      "💎 Поддержать на Patreon",
+      "https://www.patreon.com/cw/YouWorldSimulator"
+    );
     return ctx.reply(
-      "✨ Хочешь продолжить приключение без ограничений?\n💎 Оформи Premium и получи доступ ко всем возможностям мира *YourWorldSimulator*!",
+      "✨ Хочешь продолжить приключение без ограничений?\n💎 Поддержи проект на Patreon и получи Premium-доступ!",
       { reply_markup: payKeyboard, parse_mode: "Markdown" }
     );
   }
 
   if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
-    return ctx.reply("⚠️ Лимит бесплатных сообщений исчерпан.\nЧтобы продолжить — оплатите доступ.", {
-      reply_markup: new InlineKeyboard().text("💳 Оплатить Premium", "buy_premium"),
-    });
+    return ctx.reply(
+      "⚠️ Лимит бесплатных сообщений исчерпан.\nЧтобы продолжить — поддержи проект на Patreon ❤️\n" +
+        "Это поможет развивать *YourWorldSimulator* и добавлять новые миры!",
+      {
+        reply_markup: new InlineKeyboard().url(
+          "💎 Поддержать на Patreon",
+          "https://www.patreon.com/cw/YouWorldSimulator"
+        ),
+      }
+    );
 
   await ctx.api.sendChatAction(ctx.chat.id, "typing");
   await addMessage(chatId, "user", text, text);
@@ -308,51 +270,6 @@ bot.on("message:text", async (ctx) => {
 
   await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
   await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
-});
-
-/* ===========================
-   RENDER START
-   =========================== */
-(async () => {
-  console.log("🚀 Bot running on Render (Background Worker mode)");
-
-  try {
-    await bot.api.setMyCommands([
-      { command: "start", description: "Начать заново" },
-      { command: "privacy", description: "Политика конфиденциальности" },
-      { command: "terms", description: "Условия использования" },
-      { command: "resetpremium", description: "Переключить Premium вручную" },
-      { command: "whoami", description: "Показать мой Telegram ID" },
-    ]);
-
-    if (process.env.NODE_ENV === "production") {
-      await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-      await bot.start();
-      console.log("✅ Бот запущен на Render");
-    } else {
-      console.log("💻 Локальный режим — убедись, что бот на Render приостановлен.");
-      await bot.start();
-      console.log("✅ Бот запущен локально");
-    }
-  } catch (err) {
-    console.error("❌ Ошибка запуска бота:", err);
-  }
-})();
-/* ===========================
-   PREMIUM PAYMENT HANDLER
-   =========================== */
-bot.callbackQuery("buy_premium", async (ctx) => {
-  try {
-    await ctx.answerCallbackQuery({ text: "🔄 Переход к оплате..." });
-
-    const url = "https://yourworldsimulator.onrender.com/payment/start"; // ссылка на оплату
-    await ctx.reply(
-      `💎 Чтобы оформить Premium, перейди по ссылке:\n${url}\n\nПосле успешной оплаты вернись в Telegram.`
-    );
-  } catch (err) {
-    console.error("Ошибка при обработке покупки:", err);
-    await ctx.reply("⚠️ Ошибка при переходе к оплате. Попробуй позже.");
-  }
 });
 
 /* ===========================
