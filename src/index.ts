@@ -88,9 +88,15 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log(`🚀 Express сервер запущен на порту ${PORT}`)
-);
+
+if (process.env.RENDER_SERVICE !== "worker") {
+  app.listen(PORT, () =>
+    console.log(`🚀 Express сервер запущен на порту ${PORT}`)
+  );
+} else {
+  console.log("⚙️ Worker запущен без веб-сервера (порт не слушается).");
+}
+
 
 /* ===========================
    TELEGRAM BOT INIT
