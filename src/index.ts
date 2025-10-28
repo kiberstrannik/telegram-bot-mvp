@@ -48,7 +48,7 @@ if (!token) throw new Error("❌ BOT_TOKEN отсутствует в .env");
 
 const bot = new Bot(token);
 const ADMIN_GROUP_ID = -1003218588633;
-const PAYWALL_LIMIT = 2;
+const PAYWALL_LIMIT = 10;
 const db = new Database("data.db");
 
 /* ===========================
