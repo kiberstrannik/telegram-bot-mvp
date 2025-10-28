@@ -180,6 +180,12 @@ function ageKeyboard() {
     .row()
     .text("❌ Мне нет 18 лет", "age_no");
 }
+function patreonKeyboard(userId: number) {
+  return new InlineKeyboard()
+    .url("💎 Поддержать на Patreon", "https://www.patreon.com/YourWorldSimulator")
+    .row()
+    .url("🔗 Связать Patreon", `https://telegram-bot-mvp-il0f.onrender.com/patreon/start?tg=${userId}`);
+}
 
 /* ===========================
    CHARACTER CREATION
@@ -283,27 +289,20 @@ bot.on("message:text", async (ctx) => {
   const count = await getMessageCount(chatId);
 
   if (count === 2 && !(await isPremium(chatId))) {
-    const payKeyboard = new InlineKeyboard().url(
-      "💎 Поддержать на Patreon",
-      "https://www.patreon.com/cw/YouWorldSimulator"
-    );
-    return ctx.reply(
-      "✨ Хочешь продолжить приключение без ограничений?\n💎 Поддержи проект на Patreon и получи Premium-доступ!",
-      { reply_markup: payKeyboard, parse_mode: "Markdown" }
-    );
-  }
+  return ctx.reply(
+    "✨ Хочешь продолжить приключение без ограничений?\n" +
+      "💎 Поддержи проект или свяжи свой Patreon-аккаунт:",
+    { reply_markup: patreonKeyboard(chatId), parse_mode: "Markdown" }
+  );
+}
 
-  if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
-    return ctx.reply(
-      "⚠️ Лимит бесплатных сообщений исчерпан.\nЧтобы продолжить — поддержи проект на Patreon ❤️\n" +
-        "Это поможет развивать *YourWorldSimulator* и добавлять новые миры!",
-      {
-        reply_markup: new InlineKeyboard().url(
-          "💎 Поддержать на Patreon",
-          "https://www.patreon.com/cw/YouWorldSimulator"
-        ),
-      }
-    );
+if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
+  return ctx.reply(
+    "⚠️ Лимит бесплатных сообщений исчерпан.\n" +
+      "Чтобы продолжить — поддержи проект или войди через Patreon ❤️\n" +
+      "Это поможет развивать *YourWorldSimulator* и добавлять новые миры!",
+    { reply_markup: patreonKeyboard(chatId), parse_mode: "Markdown" }
+  );
 
   await ctx.api.sendChatAction(ctx.chat.id, "typing");
   await addMessage(chatId, "user", text, text);
