@@ -333,6 +333,9 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
    RENDER START
    =========================== */
 (async () => {
+  console.log("🌍 NODE_ENV =", process.env.NODE_ENV);
+console.log("🧩 RENDER_SERVICE =", process.env.RENDER_SERVICE);
+
   console.log("🚀 Bot starting...");
 
   try {
