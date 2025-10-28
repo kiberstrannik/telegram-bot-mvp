@@ -30,6 +30,58 @@ app.use(express.static(path.join(process.cwd(), "src/public")));
 
 // ✅ Маршрут платежей (теперь заглушка)
 app.use("/", paymentRouter);
+import patreonRouter from "./patreon";
+app.use("/", patreonRouter);
+
+/* ===========================
+   🔔 Patreon Webhook Handler
+   =========================== */
+import crypto from "crypto";
+
+app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
+  try {
+    const secret = process.env.PATREON_WEBHOOK_SECRET!;
+    const signature = req.headers["x-patreon-signature"] as string;
+    const body = req.body.toString();
+
+    // Проверка подлинности
+    const expectedSignature = crypto
+      .createHmac("md5", secret)
+      .update(body)
+      .digest("hex");
+
+    if (signature !== expectedSignature) {
+      console.warn("⚠️ Patreon webhook: неверная подпись!");
+      return res.status(403).send("Invalid signature");
+    }
+
+    const event = JSON.parse(body);
+    const type = event.data?.type || "";
+    const attributes = event.data?.attributes || {};
+    const email = attributes.email || null;
+    const status = attributes.patron_status || null;
+
+    console.log(`📩 Patreon webhook (${type}) — ${email}, статус: ${status}`);
+
+    // Если активная подписка
+    if (status === "active_patron") {
+      db.prepare("UPDATE users SET premium = 1 WHERE email = ?").run(email);
+      console.log(`💎 Premium активирован для ${email}`);
+    }
+
+    // Если подписка отменена
+    if (status === "declined_patron" || status === "former_patron") {
+      db.prepare("UPDATE users SET premium = 0 WHERE email = ?").run(email);
+      console.log(`🚫 Premium отключён для ${email}`);
+    }
+
+    res.status(200).send("OK");
+  } catch (err) {
+    console.error("❌ Ошибка Patreon webhook:", err);
+    res.status(500).send("Server error");
+  }
+});
+
 
 app.get("/", (req: Request, res: Response) => {
   res.send("🌐 YourWorldSimulator онлайн. Webhook активен.");
