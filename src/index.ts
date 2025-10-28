@@ -327,7 +327,7 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
    RENDER START
    =========================== */
 (async () => {
-  console.log("🚀 Bot running on Render (Background Worker mode)");
+  console.log("🚀 Bot starting...");
 
   try {
     await bot.api.setMyCommands([
@@ -338,14 +338,19 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
       { command: "whoami", description: "Показать мой Telegram ID" },
     ]);
 
-    if (process.env.NODE_ENV === "production") {
+    // ⚙️ Определяем тип сервиса
+    const isWorker = process.env.RENDER_SERVICE === "worker";
+    const isWeb = process.env.NODE_ENV === "web";
+
+    if (isWorker) {
       await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
       await bot.start();
-      console.log("✅ Бот запущен на Render");
+      console.log("✅ Telegram-бот запущен в режиме WORKER (обрабатывает обновления)");
+    } else if (isWeb) {
+      console.log("🌐 Запущен WEB-сервис (Patreon OAuth, без Telegram polling).");
     } else {
-      console.log("💻 Локальный режим — убедись, что бот на Render приостановлен.");
+      console.log("💻 Локальный режим разработки.");
       await bot.start();
-      console.log("✅ Бот запущен локально");
     }
   } catch (err) {
     console.error("❌ Ошибка запуска бота:", err);
