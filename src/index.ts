@@ -340,8 +340,7 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
    =========================== */
 (async () => {
   console.log("🌍 NODE_ENV =", process.env.NODE_ENV);
-console.log("🧩 RENDER_SERVICE =", process.env.RENDER_SERVICE);
-
+  console.log("🧩 RENDER_SERVICE =", process.env.RENDER_SERVICE);
   console.log("🚀 Bot starting...");
 
   try {
@@ -353,29 +352,35 @@ console.log("🧩 RENDER_SERVICE =", process.env.RENDER_SERVICE);
       { command: "whoami", description: "Показать мой Telegram ID" },
     ]);
 
-    
     const isWorker = process.env.RENDER_SERVICE === "worker";
-const isWeb    = process.env.RENDER_SERVICE === "web";
+    const isWeb = process.env.RENDER_SERVICE === "web";
 
-if (isWorker) {
-  console.log("⚙️ Worker запущен (режим Telegram polling).");
-  try {
-    const r = await bot.api.deleteWebhook({ drop_pending_updates: true });
-    console.log("🧹 deleteWebhook:", r ? "ok" : "already");
-  } catch (e) {
-    console.warn("⚠️ deleteWebhook failed:", e);
-  }
-  await bot.start();
-  console.log("✅ Telegram-бот запущен в режиме WORKER (обрабатывает обновления)");
-} else if (isWeb) {
-  console.log("🌐 Запущен WEB-сервис (Patreon OAuth + Webhook).");
-  app.listen(PORT, () => console.log(`🚀 Express сервер запущен на порту ${PORT}`));
-} else {
-  console.log("💻 Локальный режим разработки.");
-  app.listen(PORT, () => console.log(`🚀 Express сервер запущен на порту ${PORT}`));
-  await bot.start();
-}
+    if (isWorker) {
+      console.log("⚙️ Worker запущен (режим Telegram polling).");
 
+      // ✅ обязательно очищаем Webhook перед polling
+      try {
+        await bot.api.deleteWebhook({ drop_pending_updates: true });
+        console.log("🧹 Webhook удалён успешно (готов к polling)");
+      } catch (err) {
+        console.warn("⚠️ Ошибка при удалении webhook:", err);
+      }
+
+      console.log("🚀 Telegram Worker: запускаем polling...");
+      await bot.start();
+      console.log("✅ Telegram-бот запущен и слушает обновления.");
+
+    } else if (isWeb) {
+      console.log("🌐 Запущен WEB-сервис (Patreon OAuth + Webhook).");
+      app.listen(PORT, () => console.log(`🚀 Express сервер запущен на порту ${PORT}`));
+
+    } else {
+      console.log("💻 Локальный режим разработки.");
+      app.listen(PORT, () => console.log(`🚀 Express сервер запущен на порту ${PORT}`));
+      console.log("🧹 Сбрасываю webhook и запускаю polling локально...");
+      await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+      await bot.start();
+    }
   } catch (err) {
     console.error("❌ Ошибка запуска бота:", err);
   }
