@@ -34,22 +34,26 @@ import patreonRouter from "./patreon";
 app.use("/", patreonRouter);
 
 /* ===========================
-   🔔 Patreon Webhook Handler
+   🔔 Patreon Webhook Handler (updated)
    =========================== */
 import crypto from "crypto";
 
 app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
   try {
-    const secret = process.env.PATREON_WEBHOOK_SECRET!;
+    const secret = process.env.PATREON_WEBHOOK_SECRET || "";
     const signature = req.headers["x-patreon-signature"] as string | undefined;
-    const body = req.body instanceof Buffer ? req.body.toString() : JSON.stringify(req.body);
 
-    // 💡 Patreon тесты не содержат подпись — просто логируем
+    // Patreon иногда шлёт Buffer, иногда объект
+    const body =
+      req.body instanceof Buffer ? req.body.toString() : JSON.stringify(req.body);
+
+    // 🧩 Patreon тесты не содержат подпись — просто логируем
     if (!signature) {
-      console.log("🧩 Получен тестовый webhook без подписи:", body);
+      console.log("🧪 Получен тестовый webhook без подписи:", body);
       return res.status(200).send("Test OK (no signature)");
     }
 
+    // Проверка подлинности (для реальных уведомлений)
     const expectedSignature = crypto
       .createHmac("md5", secret)
       .update(body)
@@ -60,7 +64,7 @@ app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
       return res.status(403).send("Invalid signature");
     }
 
-
+    // Парсим JSON
     const event = JSON.parse(body);
     const type = event.data?.type || "";
     const attributes = event.data?.attributes || {};
@@ -69,14 +73,14 @@ app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
 
     console.log(`📩 Patreon webhook (${type}) — ${email}, статус: ${status}`);
 
-    // Если активная подписка
+    // Активная подписка
     if (status === "active_patron") {
       db.prepare("UPDATE users SET premium = 1 WHERE email = ?").run(email);
       console.log(`💎 Premium активирован для ${email}`);
     }
 
-    // Если подписка отменена
-    if (status === "declined_patron" || status === "former_patron") {
+    // Подписка отменена
+    if (["declined_patron", "former_patron"].includes(status)) {
       db.prepare("UPDATE users SET premium = 0 WHERE email = ?").run(email);
       console.log(`🚫 Premium отключён для ${email}`);
     }
