@@ -49,49 +49,25 @@ app.post("/patreon/webhook", (req, res) => {
     const secret = process.env.PATREON_WEBHOOK_SECRET || "";
     const signature = req.headers["x-patreon-signature"] as string | undefined;
 
-    // Читаем тело
+    // читаем тело
     let body: string;
-    if (req.body instanceof Buffer) {
-      body = req.body.toString("utf8");
-      console.log("📦 req.body — Buffer, длина:", req.body.length);
-    } else if (typeof req.body === "object") {
-      body = JSON.stringify(req.body);
-      console.log("📦 req.body — Object:", body);
-    } else {
-      body = String(req.body || "");
-      console.log("📦 req.body — String:", body);
-    }
+    if (req.body instanceof Buffer) body = req.body.toString("utf8");
+    else if (typeof req.body === "object") body = JSON.stringify(req.body);
+    else body = String(req.body || "");
 
-    // Если это тест (без подписи)
     if (!signature) {
-      console.log("🧪 Тестовый webhook Patreon без подписи");
+      console.log("🧪 Тестовый webhook Patreon (без подписи)");
       console.log("🧪 Содержимое тела:", body);
       return res.status(200).send("✅ Test OK");
     }
 
-    // Проверка подписи
-    const expectedSignature = crypto
-      .createHmac("md5", secret)
-      .update(body)
-      .digest("hex");
-
+    const expectedSignature = crypto.createHmac("md5", secret).update(body).digest("hex");
     if (signature !== expectedSignature) {
       console.warn("⚠️ Неверная подпись Patreon!");
       return res.status(403).send("Invalid signature");
     }
 
-    console.log("✅ Подпись Patreon проверена");
-
-    // Пробуем распарсить JSON
-    let event;
-    try {
-      event = JSON.parse(body);
-      console.log("🧩 JSON успешно распарсен:", event);
-    } catch (jsonErr) {
-      console.error("❌ Ошибка при JSON.parse:", jsonErr);
-      return res.status(400).send("Bad JSON");
-    }
-
+    const event = JSON.parse(body);
     const type = event.data?.type || "";
     const attributes = event.data?.attributes || {};
     const email = attributes.email || null;
@@ -99,15 +75,10 @@ app.post("/patreon/webhook", (req, res) => {
 
     console.log(`📩 Patreon event (${type}) — ${email}, статус: ${status}`);
 
-    if (status === "active_patron") {
-      db.prepare("UPDATE users SET premium = 1 WHERE email = ?").run(email);
-      console.log(`💎 Premium активирован для ${email}`);
-    }
-
-    if (["declined_patron", "former_patron"].includes(status)) {
-      db.prepare("UPDATE users SET premium = 0 WHERE email = ?").run(email);
-      console.log(`🚫 Premium отключён для ${email}`);
-    }
+    // Пока просто логируем — без апдейта
+    if (status === "active_patron") console.log(`💎 Patreon premium активен (${email})`);
+    if (["declined_patron", "former_patron"].includes(status))
+      console.log(`🚫 Patreon premium отключён (${email})`);
 
     res.status(200).send("✅ OK");
   } catch (err) {
@@ -115,6 +86,7 @@ app.post("/patreon/webhook", (req, res) => {
     res.status(500).send("Server error");
   }
 });
+
 
 
 app.get("/", (req: Request, res: Response) => {
