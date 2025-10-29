@@ -41,10 +41,15 @@ import crypto from "crypto";
 app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
   try {
     const secret = process.env.PATREON_WEBHOOK_SECRET!;
-    const signature = req.headers["x-patreon-signature"] as string;
-    const body = req.body.toString();
+    const signature = req.headers["x-patreon-signature"] as string | undefined;
+    const body = req.body instanceof Buffer ? req.body.toString() : JSON.stringify(req.body);
 
-    // Проверка подлинности
+    // 💡 Patreon тесты не содержат подпись — просто логируем
+    if (!signature) {
+      console.log("🧩 Получен тестовый webhook без подписи:", body);
+      return res.status(200).send("Test OK (no signature)");
+    }
+
     const expectedSignature = crypto
       .createHmac("md5", secret)
       .update(body)
@@ -54,6 +59,7 @@ app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
       console.warn("⚠️ Patreon webhook: неверная подпись!");
       return res.status(403).send("Invalid signature");
     }
+
 
     const event = JSON.parse(body);
     const type = event.data?.type || "";
