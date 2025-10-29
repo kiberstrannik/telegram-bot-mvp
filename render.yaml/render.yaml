@@ -1,0 +1,11 @@
+services:
+  - type: worker
+    name: telegram-bot-mvp
+    env: node
+    buildCommand: "npm install; npm run build"
+    startCommand: "npm run start"
+    envVars:
+      - key: RENDER_SERVICE
+        value: worker
+      - key: NODE_ENV
+        value: production
