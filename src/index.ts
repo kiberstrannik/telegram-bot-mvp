@@ -365,6 +365,8 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
       } catch (err) {
         console.warn("⚠️ Ошибка при удалении webhook:", err);
       }
+      setInterval(() => console.log("💓 Worker still alive..."), 60_000);
+
 
       console.log("🚀 Telegram Worker: запускаем polling...");
       await bot.start();
