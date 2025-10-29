@@ -34,26 +34,32 @@ import patreonRouter from "./patreon";
 app.use("/", patreonRouter);
 
 /* ===========================
-   🔔 Patreon Webhook Handler (updated)
+   🔔 Patreon Webhook Handler (stable)
    =========================== */
 import crypto from "crypto";
+import bodyParser from "body-parser";
 
-app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
+// Для тестов Patreon иногда шлёт JSON, не raw — поддержим оба случая
+app.use("/patreon/webhook", bodyParser.raw({ type: "*/*" }));
+
+app.post("/patreon/webhook", (req, res) => {
   try {
     const secret = process.env.PATREON_WEBHOOK_SECRET || "";
     const signature = req.headers["x-patreon-signature"] as string | undefined;
 
-    // Patreon иногда шлёт Buffer, иногда объект
-    const body =
-      req.body instanceof Buffer ? req.body.toString() : JSON.stringify(req.body);
+    // Универсальный способ прочитать тело
+    let body: string;
+    if (req.body instanceof Buffer) body = req.body.toString("utf8");
+    else if (typeof req.body === "object") body = JSON.stringify(req.body);
+    else body = String(req.body || "");
 
-    // 🧩 Patreon тесты не содержат подпись — просто логируем
+    // Если это тест от Patreon — у них нет подписи
     if (!signature) {
-      console.log("🧪 Получен тестовый webhook без подписи:", body);
-      return res.status(200).send("Test OK (no signature)");
+      console.log("🧪 Тестовый webhook Patreon (без подписи):", body);
+      return res.status(200).send("✅ Test OK");
     }
 
-    // Проверка подлинности (для реальных уведомлений)
+    // Проверка подлинности для реальных уведомлений
     const expectedSignature = crypto
       .createHmac("md5", secret)
       .update(body)
@@ -64,7 +70,6 @@ app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
       return res.status(403).send("Invalid signature");
     }
 
-    // Парсим JSON
     const event = JSON.parse(body);
     const type = event.data?.type || "";
     const attributes = event.data?.attributes || {};
@@ -73,24 +78,24 @@ app.post("/patreon/webhook", express.raw({ type: "*/*" }), (req, res) => {
 
     console.log(`📩 Patreon webhook (${type}) — ${email}, статус: ${status}`);
 
-    // Активная подписка
     if (status === "active_patron") {
       db.prepare("UPDATE users SET premium = 1 WHERE email = ?").run(email);
       console.log(`💎 Premium активирован для ${email}`);
     }
 
-    // Подписка отменена
     if (["declined_patron", "former_patron"].includes(status)) {
       db.prepare("UPDATE users SET premium = 0 WHERE email = ?").run(email);
       console.log(`🚫 Premium отключён для ${email}`);
     }
 
-    res.status(200).send("OK");
+    res.status(200).send("✅ OK");
   } catch (err) {
     console.error("❌ Ошибка Patreon webhook:", err);
     res.status(500).send("Server error");
   }
 });
+
+// removed duplicate Patreon webhook handler (parsing 'body' here caused "Cannot find name 'body'")
 
 
 app.get("/", (req: Request, res: Response) => {
