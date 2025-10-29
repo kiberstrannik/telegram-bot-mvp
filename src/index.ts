@@ -355,12 +355,16 @@ console.log("🧩 RENDER_SERVICE =", process.env.RENDER_SERVICE);
 
     
     const isWorker = process.env.RENDER_SERVICE === "worker";
-    const isWeb = process.env.RENDER_SERVICE === "web"; // ✅ исправлено!
+const isWeb    = process.env.RENDER_SERVICE === "web";
 
-
-    if (isWorker) {
+if (isWorker) {
   console.log("⚙️ Worker запущен (режим Telegram polling).");
-  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+  try {
+    const r = await bot.api.deleteWebhook({ drop_pending_updates: true });
+    console.log("🧹 deleteWebhook:", r ? "ok" : "already");
+  } catch (e) {
+    console.warn("⚠️ deleteWebhook failed:", e);
+  }
   await bot.start();
   console.log("✅ Telegram-бот запущен в режиме WORKER (обрабатывает обновления)");
 } else if (isWeb) {
