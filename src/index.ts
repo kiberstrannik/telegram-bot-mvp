@@ -353,20 +353,25 @@ console.log("🧩 RENDER_SERVICE =", process.env.RENDER_SERVICE);
       { command: "whoami", description: "Показать мой Telegram ID" },
     ]);
 
-    // ⚙️ Определяем тип сервиса
+    
     const isWorker = process.env.RENDER_SERVICE === "worker";
-    const isWeb = process.env.NODE_ENV === "web";
+    const isWeb = process.env.RENDER_SERVICE === "web"; // ✅ исправлено!
+
 
     if (isWorker) {
-      await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-      await bot.start();
-      console.log("✅ Telegram-бот запущен в режиме WORKER (обрабатывает обновления)");
-    } else if (isWeb) {
-      console.log("🌐 Запущен WEB-сервис (Patreon OAuth, без Telegram polling).");
-    } else {
-      console.log("💻 Локальный режим разработки.");
-      await bot.start();
-    }
+  console.log("⚙️ Worker запущен (режим Telegram polling).");
+  await bot.api.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+  await bot.start();
+  console.log("✅ Telegram-бот запущен в режиме WORKER (обрабатывает обновления)");
+} else if (isWeb) {
+  console.log("🌐 Запущен WEB-сервис (Patreon OAuth + Webhook).");
+  app.listen(PORT, () => console.log(`🚀 Express сервер запущен на порту ${PORT}`));
+} else {
+  console.log("💻 Локальный режим разработки.");
+  app.listen(PORT, () => console.log(`🚀 Express сервер запущен на порту ${PORT}`));
+  await bot.start();
+}
+
   } catch (err) {
     console.error("❌ Ошибка запуска бота:", err);
   }
