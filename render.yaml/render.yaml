@@ -1,11 +1,44 @@
 services:
-  - type: worker
-    name: telegram-bot-mvp
+  services:
+  # === 🌍 WEB SERVER (Patreon + static + webhook) ===
+  - type: web
+    name: telegram-bot-mvp-web
     env: node
     buildCommand: "npm install; npm run build"
     startCommand: "npm run start"
+    plan: free
+    envVars:
+      - key: RENDER_SERVICE
+        value: web
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: BOT_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: gpt-4o-mini
+    healthCheckPath: "/"         # ✅ Render проверяет доступность этого URL
+
+  # === ⚙️ BACKGROUND WORKER (Telegram polling) ===
+  - type: worker
+    name: telegram-bot-mvp-worker
+    env: node
+    buildCommand: "npm install; npm run build"
+    startCommand: "npm run start"
+    plan: starter
     envVars:
       - key: RENDER_SERVICE
         value: worker
       - key: NODE_ENV
         value: production
+      - key: BOT_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: gpt-4o-mini
+      - key: KEEPALIVE_URL          # 🔄 ping на твой web
+        value: https://telegram-bot-mvp-web.onrender.com

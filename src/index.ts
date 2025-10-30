@@ -5,6 +5,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import paymentRouter from "./paymentCrypto";
 import Database from "better-sqlite3";
 import express, { Request, Response } from "express";
+import fetch from "node-fetch";
 
 import {
   upsertUser,
@@ -359,18 +360,33 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
       console.log("⚙️ Worker запущен (режим Telegram polling).");
 
       // ✅ обязательно очищаем Webhook перед polling
-      try {
-        await bot.api.deleteWebhook({ drop_pending_updates: true });
-        console.log("🧹 Webhook удалён успешно (готов к polling)");
-      } catch (err) {
-        console.warn("⚠️ Ошибка при удалении webhook:", err);
-      }
-      setInterval(() => console.log("💓 Worker still alive..."), 60_000);
+      // ✅ обязательно очищаем Webhook перед polling
+try {
+  await bot.api.deleteWebhook({ drop_pending_updates: true });
+  console.log("🧹 Webhook удалён успешно (готов к polling)");
+} catch (err) {
+  console.warn("⚠️ Ошибка при удалении webhook:", err);
+}
+
+setInterval(() => console.log("💓 Worker still alive..."), 60_000);
+
+console.log("🚀 Telegram Worker: запускаем polling...");
+await bot.start();
+console.log("✅ Telegram-бот запущен и слушает обновления.");
+
+// 💓 KeepAlive Ping (чтобы Render не усыплял веб-сервис)
+if (process.env.RENDER_SERVICE === "worker" && process.env.KEEPALIVE_URL) {
+  setInterval(async () => {
+    try {
+      const res = await fetch(process.env.KEEPALIVE_URL!);
+      console.log(`💓 Ping ${process.env.KEEPALIVE_URL} → ${res.status}`);
+    } catch (err) {
+      console.warn("⚠️ KeepAlive ping failed:", err);
+    }
+  }, 5 * 60 * 1000); // каждые 5 минут
+}
 
 
-      console.log("🚀 Telegram Worker: запускаем polling...");
-      await bot.start();
-      console.log("✅ Telegram-бот запущен и слушает обновления.");
 
     } else if (isWeb) {
       console.log("🌐 Запущен WEB-сервис (Patreon OAuth + Webhook).");
