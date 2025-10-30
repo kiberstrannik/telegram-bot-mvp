@@ -4,11 +4,13 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "cross-env RENDER_SERVICE=local NODE_ENV=development tsx watch src/index.ts",
     "build": "npm install --include=dev @types/express @types/node && tsc -p .",
     "start": "tsx src/index.ts",
     "migrate": "tsx src/migrate.ts",
-    "postinstall": "npm rebuild better-sqlite3"
+    "postinstall": "npm rebuild better-sqlite3",
+    "render": "cross-env RENDER_SERVICE=worker NODE_ENV=production tsx src/index.ts",
+    "web": "cross-env RENDER_SERVICE=web NODE_ENV=production tsx src/index.ts"
   },
   "dependencies": {
     "@vitalets/google-translate-api": "^9.2.1",
@@ -27,6 +29,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.4",
     "@types/node": "^20.19.23",
+    "cross-env": "^10.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

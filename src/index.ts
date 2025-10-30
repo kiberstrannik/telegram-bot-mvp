@@ -336,6 +336,93 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
   await addMessage(chatId, "assistant", replyOriginal, replyTranslated);
   await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
 });
+/* ===========================
+   INLINE BUTTON HANDLERS
+   =========================== */
+bot.callbackQuery("continue", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await ctx.reply("🔁 Продолжаем историю...", { reply_markup: actionKeyboard() });
+
+  const userId = ctx.from.id;
+  const hist = await getHistory(userId);
+  const replyOriginal = await generateSpicyReply("", hist, userId);
+  const replyTranslated = /[a-zA-Z]{4,}/.test(replyOriginal)
+    ? await translateToRussian(replyOriginal)
+    : replyOriginal;
+
+  await addMessage(userId, "assistant", replyOriginal, replyTranslated);
+  await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
+});
+
+bot.callbackQuery("new_world", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from.id;
+  await resetUser(userId);
+  userState.set(userId, 0);
+  await ctx.reply("🎭 Начинаем создание нового персонажа!\n" + creationSteps[0].question);
+});
+
+bot.callbackQuery("forget_last", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from.id;
+
+  try {
+    const lastMsg = db
+      .prepare("SELECT id, role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 1")
+      .get(userId);
+
+    if (!lastMsg) {
+      await ctx.reply("📭 История пуста — нечего забывать.");
+      return;
+    }
+
+    // Удаляем последнее сообщение пользователя
+    db.prepare("DELETE FROM messages WHERE id = ?").run(lastMsg.id);
+
+    // Если последняя запись — от пользователя, удаляем и ответ ассистента
+    if (lastMsg.role === "user") {
+      const lastBotMsg = db
+        .prepare("SELECT id FROM messages WHERE user_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1")
+        .get(userId);
+      if (lastBotMsg) db.prepare("DELETE FROM messages WHERE id = ?").run(lastBotMsg.id);
+    }
+
+    // Эффект "магического забвения"
+    const phrases = [
+      "💫 Воспоминания дрогнули и растворились, оставив лёгкое ощущение пустоты...",
+      "🌀 Ты чувствуешь лёгкое смятение — будто часть недавних событий исчезла из памяти.",
+      "🌫 Мысли путаются, и ты с трудом вспоминаешь, что происходило мгновение назад...",
+      "🌪 Всё вокруг слегка изменилось, словно мир сам решил вычеркнуть недавний момент.",
+      "🕯 В глубине сознания гаснет один из огоньков памяти. Тишина."
+    ];
+    const randomEffect = phrases[Math.floor(Math.random() * phrases.length)];
+
+    await ctx.reply(randomEffect);
+    await ctx.reply("Теперь можешь продолжить историю 👇", {
+      reply_markup: actionKeyboard(),
+    });
+  } catch (err) {
+    console.error("⚠️ Ошибка при forget_last:", err);
+    await ctx.reply("❌ Что-то пошло не так при стирании памяти. Попробуй снова.");
+  }
+});
+
+
+
+bot.callbackQuery("age_yes", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from.id;
+  db.prepare("UPDATE users SET age_verified = 1 WHERE id = ?").run(userId);
+  await ctx.reply("✅ Отлично! Теперь можно начинать приключение.");
+  await ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
+});
+
+bot.callbackQuery("age_no", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from.id;
+  db.prepare("UPDATE users SET age_verified = -1 WHERE id = ?").run(userId);
+  await ctx.reply("🚫 Доступ разрешён только пользователям старше 18 лет.");
+});
 
 /* ===========================
    RENDER START
