@@ -89,8 +89,6 @@ app.post("/patreon/webhook", (req, res) => {
   }
 });
 
-
-
 app.get("/", (req: Request, res: Response) => {
   res.send("🌐 YourWorldSimulator онлайн. Webhook активен.");
 });
@@ -206,13 +204,17 @@ function patreonKeyboard(userId: number) {
    =========================== */
 const creationSteps = [
   { key: "character_name", question: "🧙 Как зовут твоего персонажа?" },
-  { key: "character_gender", question: "⚧ Укажи пол персонажа (м/ж/другое):" },
+  { key: "character_gender", question: null },
   { key: "character_age", question: "🎂 Сколько лет твоему персонажу?" },
   { key: "character_race", question: "🧬 К какой расе принадлежит твой персонаж?" },
-  { key: "character_preference", question: "💞 Кому симпатизирует твой персонаж? (мужчинам, женщинам, обоим, никому)" },
+  { key: "character_preference", question: null },
+
 ] as const;
 
 const userState = new Map<number, number>();
+
+// 👇 ДОБАВЛЕНО: флаг «юзер сейчас ждёт продолжение»
+const busyUsers = new Set<number>();
 
 const WELCOME_TEXT = `
 🌌 Добро пожаловать в *Your World Simulator*.
@@ -281,11 +283,55 @@ bot.on("message:text", async (ctx) => {
   if (userState.has(chatId)) {
     const step = userState.get(chatId)!;
     const current = creationSteps[step];
-    await updateCharacterField(chatId, current.key, text);
+    // Если сейчас шаг выбора пола — не записываем текст
+    if (current.key !== "character_gender") {
+      await updateCharacterField(chatId, current.key, text);
+    }
 
     if (step + 1 < creationSteps.length) {
       userState.set(chatId, step + 1);
-      return ctx.reply(creationSteps[step + 1].question);
+
+      const next = creationSteps[step + 1];
+
+      // Выбор пола уже есть — оставляем как есть
+      if (next.key === "character_gender") {
+        return ctx.reply(
+          "⚧ Укажи пол персонажа:",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "♂ Мужчина", callback_data: "set_gender_male" },
+                  { text: "♀ Женщина", callback_data: "set_gender_female" }
+                ]
+              ]
+            }
+          }
+        );
+      }
+
+      // ✅ Добавляем выбор ориентации кнопками
+      if (next.key === "character_preference") {
+        return ctx.reply(
+          "💞 Кому симпатизирует твой персонаж?",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "♂ Мужчинам", callback_data: "pref_men" },
+                  { text: "♀ Женщинам", callback_data: "pref_women" }
+                ],
+                [
+                  { text: "⚥ Обоим", callback_data: "pref_both" },
+                  { text: "⛔ Никому", callback_data: "pref_none" }
+                ]
+              ]
+            }
+          }
+        );
+      }
+
+      return ctx.reply(next.question);
     }
 
     userState.delete(chatId);
@@ -303,20 +349,20 @@ bot.on("message:text", async (ctx) => {
   const count = await getMessageCount(chatId);
 
   if (count === 2 && !(await isPremium(chatId))) {
-  return ctx.reply(
-    "✨ Хочешь продолжить приключение без ограничений?\n" +
+    return ctx.reply(
+      "✨ Хочешь продолжить приключение без ограничений?\n" +
       "💎 Поддержи проект или свяжи свой Patreon-аккаунт:",
-    { reply_markup: patreonKeyboard(chatId), parse_mode: "Markdown" }
-  );
-}
+      { reply_markup: patreonKeyboard(chatId), parse_mode: "Markdown" }
+    );
+  }
 
-if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
-  return ctx.reply(
-    "⚠️ Лимит бесплатных сообщений исчерпан.\n" +
+  if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
+    return ctx.reply(
+      "⚠️ Лимит бесплатных сообщений исчерпан.\n" +
       "Чтобы продолжить — поддержи проект или войди через Patreon ❤️\n" +
       "Это поможет развивать *YourWorldSimulator* и добавлять новые миры!",
-    { reply_markup: patreonKeyboard(chatId), parse_mode: "Markdown" }
-  );
+      { reply_markup: patreonKeyboard(chatId), parse_mode: "Markdown" }
+    );
 
   await ctx.api.sendChatAction(ctx.chat.id, "typing");
   await addMessage(chatId, "user", text, text);
@@ -341,17 +387,45 @@ if (!(await isPremium(chatId)) && count >= PAYWALL_LIMIT)
    =========================== */
 bot.callbackQuery("continue", async (ctx) => {
   await ctx.answerCallbackQuery();
-  await ctx.reply("🔁 Продолжаем историю...", { reply_markup: actionKeyboard() });
-
   const userId = ctx.from.id;
-  const hist = await getHistory(userId);
-  const replyOriginal = await generateSpicyReply("", hist, userId);
-  const replyTranslated = /[a-zA-Z]{4,}/.test(replyOriginal)
-    ? await translateToRussian(replyOriginal)
-    : replyOriginal;
 
-  await addMessage(userId, "assistant", replyOriginal, replyTranslated);
-  await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
+  // 👇 если уже идёт генерация — не запускаем вторую
+  if (busyUsers.has(userId)) {
+    await ctx.reply("⏳ Я ещё пишу прошлое продолжение, подожди пару секунд.", {
+      reply_markup: actionKeyboard(),
+    });
+    return;
+  }
+
+  busyUsers.add(userId);
+
+  try {
+    await ctx.reply("Пишу продолжение...");
+
+    // анимация "печатает"
+    if (ctx.chat) {
+      await ctx.api.sendChatAction(ctx.chat.id, "typing");
+    }
+
+    // ⬇️ Делаем нажатие кнопки обычным сообщением пользователя
+    const userText = "Продолжить";
+    await addMessage(userId, "user", userText, userText);
+
+    const hist = await getHistory(userId);
+
+    const replyOriginal = await generateSpicyReply(userText, hist, userId);
+    const replyTranslated = /[a-zA-Z]{4,}/.test(replyOriginal)
+      ? await translateToRussian(replyOriginal)
+      : replyOriginal;
+
+    await addMessage(userId, "assistant", replyOriginal, replyTranslated);
+    await ctx.reply(replyTranslated, { reply_markup: actionKeyboard() });
+  } catch (err) {
+    console.error("⚠️ Ошибка при обработке continue:", err);
+    await ctx.reply("❌ Что-то пошло не так при продолжении сцены. Попробуй ещё раз чуть позже.");
+  } finally {
+    busyUsers.delete(userId);
+  }
 });
 
 bot.callbackQuery("new_world", async (ctx) => {
@@ -360,6 +434,51 @@ bot.callbackQuery("new_world", async (ctx) => {
   await resetUser(userId);
   userState.set(userId, 0);
   await ctx.reply("🎭 Начинаем создание нового персонажа!\n" + creationSteps[0].question);
+});
+bot.callbackQuery("set_gender_male", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from.id;
+  await updateCharacterField(userId, "character_gender", "мужчина");
+
+  userState.set(userId, 2); // переход к следующему шагу (age)
+  await ctx.reply(creationSteps[2].question);
+});
+bot.callbackQuery("pref_men", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await updateCharacterField(ctx.from.id, "character_preference", "мужчинам");
+  userState.delete(ctx.from.id);
+  await ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
+});
+
+bot.callbackQuery("pref_women", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await updateCharacterField(ctx.from.id, "character_preference", "женщинам");
+  userState.delete(ctx.from.id);
+  await ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
+});
+
+bot.callbackQuery("pref_both", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await updateCharacterField(ctx.from.id, "character_preference", "обоим");
+  userState.delete(ctx.from.id);
+  await ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
+});
+
+bot.callbackQuery("pref_none", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await updateCharacterField(ctx.from.id, "character_preference", "никому");
+  userState.delete(ctx.from.id);
+  await ctx.reply(WELCOME_TEXT, { reply_markup: actionKeyboard() });
+});
+
+
+bot.callbackQuery("set_gender_female", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const userId = ctx.from.id;
+  await updateCharacterField(userId, "character_gender", "женщина");
+
+  userState.set(userId, 2); // переход к следующему шагу (age)
+  await ctx.reply(creationSteps[2].question);
 });
 
 bot.callbackQuery("forget_last", async (ctx) => {
@@ -406,8 +525,6 @@ bot.callbackQuery("forget_last", async (ctx) => {
     await ctx.reply("❌ Что-то пошло не так при стирании памяти. Попробуй снова.");
   }
 });
-
-
 
 bot.callbackQuery("age_yes", async (ctx) => {
   await ctx.answerCallbackQuery();

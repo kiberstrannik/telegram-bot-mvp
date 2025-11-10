@@ -159,7 +159,7 @@ export function addMessage(
 
 export function getHistory(userId: number): { role: Role; content: string }[] {
   const stmt = db.prepare(`
-    SELECT role, translated AS content
+    SELECT role, content AS content
     FROM messages
     WHERE user_id = ?
     ORDER BY id ASC
